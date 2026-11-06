@@ -20,7 +20,7 @@
   const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 
   const NET_RANK = { iwn: 4, nwn: 3, rwn: 2, lwn: 1 };
-  const CONN_FACTOR = 1.3;   // Verbindungswege nur, wo sie spürbar abkürzen
+  const CONN_FACTOR = 1.1;   // Verbindungswege nur, wo sie spürbar abkürzen
   const NET_FACTOR = { iwn: 0.85, nwn: 0.85, rwn: 0.92, lwn: 1 };
   const NET_LABEL = { iwn: 'Internationaler Weg', nwn: 'Fernwanderweg', rwn: 'Regionaler Weg', lwn: 'Lokaler Weg' };
 
