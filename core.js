@@ -20,7 +20,7 @@
   const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 
   const NET_RANK = { iwn: 4, nwn: 3, rwn: 2, lwn: 1 };
-  const CONN_FACTOR = 1.1;   // Verbindungswege nur, wo sie spürbar abkürzen
+  const CONN_FACTOR = 1.6;   // ausgeschilderte Wege klar bevorzugen; Verbindungswege nur bei deutlicher Abkürzung
   const NET_FACTOR = { iwn: 0.85, nwn: 0.85, rwn: 0.92, lwn: 1 };
   const NET_LABEL = { iwn: 'Internationaler Weg', nwn: 'Fernwanderweg', rwn: 'Regionaler Weg', lwn: 'Lokaler Weg' };
 
@@ -282,7 +282,7 @@
   }
 
   // Erzeugt Dreiecks-Rundwege S -> P -> Q -> S mit Strafgewicht auf bereits benutzten Kanten
-  function* loopCandidates(G, S, L, f, bearings) {
+  function* loopCandidates(G, S, L, f, bearings, turn = 60) {
     const base = ei => G.edges[ei].w;
     const d0 = dijkstra(G, S, base, L * 0.65);
     const sc = G.nodeCoord[S];
@@ -308,9 +308,10 @@
         const p1 = pathTo(G, d0, P); if (!p1) continue;
         const used = new Set(p1.map(s => s.e));
         const onP1 = new Set([S]); for (const s of p1) { const e = G.edges[s.e]; onP1.add(e.a); onP1.add(e.b); }
-        const pen = ei => G.edges[ei].w * (used.has(ei) ? 6 : 1);
+        // bereits genutzte Wege und Knoten meiden, damit sich der Rundweg nicht kreuzt
+        const pen = ei => { const e = G.edges[ei]; return e.w * (used.has(ei) ? 12 : 1) * (onP1.has(e.a) || onP1.has(e.b) ? 4 : 1); };
         const d1 = dijkstra(G, P, pen, a * 1.6);
-        const want = (theta + side * 60 + 360) % 360;
+        const want = (theta + side * turn + 360) % 360;
         let Q = -1; best = Infinity;
         for (const i of reach) {
           if (onP1.has(i)) continue;
@@ -322,7 +323,8 @@
         }
         if (Q < 0) continue;
         const p2 = pathTo(G, d1, Q); if (!p2) continue;
-        for (const s of p2) used.add(s.e);
+        for (const s of p2) { used.add(s.e); const e = G.edges[s.e]; onP1.add(e.a); onP1.add(e.b); }
+        onP1.delete(S);
         const d2 = dijkstra(G, Q, pen, L * 1.5, S);
         const p3 = pathTo(G, d2, S); if (!p3) continue;
         const steps = pruneSpurs(p1.concat(p2, p3));
@@ -337,13 +339,22 @@
     const all = [];
     let f = 0.3;
     const fs = [];
-    for (let pass = 0; pass < 3; pass++) {
+    // Runden 4 und 5 nur, wenn nach dem Kreuzungsfilter zu wenige Varianten übrig sind: andere Dreiecksformen
+    const TURNS = [60, 60, 60, 35, 95, 60, 75], SIZE = [1, 1, 1, 1, 1, 0.8, 1.25];
+    for (let pass = 0; pass < 7; pass++) {
+      if (pass >= 3) {
+        // zählen, wie viele unterschiedliche, passende Varianten es schon gibt
+        const ok = all.filter(x => Math.abs(x.total - L) / L < 0.3).sort((x, y) => x.score - y.score), d = [];
+        for (const c of ok) { if (!d.some(p => similarity(G, p, c) > 0.45)) d.push(c); if (d.length >= 6) break; }
+        if (d.length >= 6) break;
+      }
       fs.push(f);
       let done = 0;
-      for (const c of loopCandidates(G, S, L, f, bearings)) {
-        if (!c) { await tick(pass, done++ / (bearings * 2) / 3 + pass / 3); continue; }
+      for (const c of loopCandidates(G, S, L, f * SIZE[pass], pass >= 3 ? 24 : bearings, TURNS[pass])) {
+        if (!c) { await tick(Math.min(pass, 2), done++ / (bearings * 2) / 3 + Math.min(pass, 2) / 3); continue; }
         const ev = evalLoop(G, c.steps);
         if (ev.total < 500) continue;
+        if (!crossingFree(G, c.steps, true)) continue;
         const dev = Math.abs(ev.total - L) / L;
         const ovl = ev.overlap / ev.total;
         let nat = 0;
@@ -354,7 +365,7 @@
       const top = all.slice().sort((x, y) => x.score - y.score).slice(0, 6).map(x => x.total).sort((x, y) => x - y);
       const med = top[top.length >> 1];
       const good = all.filter(x => Math.abs(x.total - L) / L < 0.15).length;
-      if (good >= 24) break;
+      if (good >= 24 || pass >= 2) { if (pass < 2) break; continue; }
       f = Math.max(0.12, Math.min(0.5, f * L / med));
       if (pass === 1) f = Math.max(0.12, Math.min(0.5, f * (fs[1] > fs[0] ? 0.82 : 1.18)));   // dritte Runde: andere Form
     }
@@ -368,6 +379,60 @@
       if (picked.length >= (opts.max || 3)) break;
     }
     return picked;
+  }
+
+  /* ---------- Kreuzungsfreiheit ---------- */
+  // true, wenn die Route keinen Knoten doppelt passiert und sich geometrisch nicht schneidet.
+  // Ein Stichweg direkt am Start (hin und zurück) ist erlaubt.
+  function crossingFree(G, steps, loop) {
+    let st = steps;
+    if (loop) {
+      let a = 0, b = st.length - 1;
+      while (a < b && st[a].e === st[b].e && st[a].fwd !== st[b].fwd) { a++; b--; }
+      st = st.slice(a, b + 1);
+      if (!st.length) return false;
+    }
+    const nodes = [];
+    for (const x of st) { const e = G.edges[x.e]; nodes.push(x.fwd ? e.a : e.b); }
+    const last = G.edges[st[st.length - 1].e]; nodes.push(st[st.length - 1].fwd ? last.b : last.a);
+    const seen = new Set();
+    for (let i = 0; i < nodes.length; i++) {
+      if (loop && i === nodes.length - 1 && nodes[i] === nodes[0]) break;
+      if (seen.has(nodes[i])) return false;
+      seen.add(nodes[i]);
+    }
+    // Geometrie: ausgedünnte Linie auf Schnittpunkte prüfen (Brücken, Unterführungen ohne gemeinsamen Knoten)
+    const all = stepsCoords(G, st);
+    const step = Math.max(1, Math.floor(all.length / 1500));
+    const pts = []; for (let i = 0; i < all.length; i += step) pts.push(all[i]); pts.push(all[all.length - 1]);
+    const n = pts.length; if (n < 4) return true;
+    const k = Math.cos(pts[0][0] * Math.PI / 180);
+    const P = pts.map(p => [p[1] * k, p[0]]);
+    // Raster für schnellen Vergleich
+    const cell = 0.004, grid = new Map();
+    const key = (x, y) => Math.floor(x / cell) + ',' + Math.floor(y / cell);
+    for (let i = 0; i < n - 1; i++) {
+      const [x1, y1] = P[i], [x2, y2] = P[i + 1];
+      const cs = new Set([key(x1, y1), key(x2, y2), key((x1 + x2) / 2, (y1 + y2) / 2)]);
+      for (const c of cs) { let l = grid.get(c); if (!l) grid.set(c, l = []); l.push(i); }
+    }
+    const cross = (a, b) => {
+      const [p1, p2, p3, p4] = [P[a], P[a + 1], P[b], P[b + 1]];
+      const d = (p2[0] - p1[0]) * (p4[1] - p3[1]) - (p2[1] - p1[1]) * (p4[0] - p3[0]);
+      if (Math.abs(d) < 1e-14) return false;
+      const t = ((p3[0] - p1[0]) * (p4[1] - p3[1]) - (p3[1] - p1[1]) * (p4[0] - p3[0])) / d;
+      const u = ((p3[0] - p1[0]) * (p2[1] - p1[1]) - (p3[1] - p1[1]) * (p2[0] - p1[0])) / d;
+      return t > 0.001 && t < 0.999 && u > 0.001 && u < 0.999;
+    };
+    for (const l of grid.values()) {
+      for (let x = 0; x < l.length; x++) for (let y = x + 1; y < l.length; y++) {
+        const a = Math.min(l[x], l[y]), b = Math.max(l[x], l[y]);
+        if (b - a < 2) continue;
+        if (loop && a === 0 && b === n - 2) continue;
+        if (cross(a, b)) return false;
+      }
+    }
+    return true;
   }
 
   /* ---------- Start–Ziel ---------- */
@@ -385,6 +450,7 @@
       for (const s of steps) pen[s.e] *= 1.7;
       if (!out.length) best = ev.total;
       if (ev.total > best * (opts.maxRatio || 1.5)) continue;
+      if (!crossingFree(G, steps, false)) continue;
       const cand = Object.assign({ steps }, ev);
       if (out.some(o => similarity(G, o, cand) > 0.55)) continue;
       out.push(cand);
@@ -507,7 +573,7 @@
     return { title: name || ref || 'Markierter Wanderweg', ref: name ? ref : '' };
   }
 
-  const WK = { hav, bearing, buildGraph, setWeights, routeStats, classRuns, compactFromOverpass, mergeCompact, edgeCoords, wayCoords, findRoutes, dijkstra, pathTo, snap, findLoops, evalLoop, stepsCoords, segments, walkTime, osmcSVG, routeLabel, NET_LABEL, NET_RANK };
+  const WK = { hav, bearing, buildGraph, crossingFree, setWeights, routeStats, classRuns, compactFromOverpass, mergeCompact, edgeCoords, wayCoords, findRoutes, dijkstra, pathTo, snap, findLoops, evalLoop, stepsCoords, segments, walkTime, osmcSVG, routeLabel, NET_LABEL, NET_RANK };
   if (typeof module !== 'undefined' && module.exports) module.exports = WK;
   root.WK = WK;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
