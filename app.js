@@ -808,11 +808,30 @@
     const pts = lp.coords.map(c => `<trkpt lat="${c[0].toFixed(6)}" lon="${c[1].toFixed(6)}"/>`).join('\n');
     const desc = lp.rows.map(r => r.zuweg ? `ohne Markierung ${km(r.len)} km` : r.rel == null ? `Verbindungsweg ${km(r.len)} km` : `${WK.routeLabel(S.G.rels.get(r.rel).tags).title} ${km(r.len)} km`).join(' | ');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Wander-Routenplaner" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${esc(name)}</name><desc>${esc(desc)}</desc><copyright author="OpenStreetMap contributors"><license>https://opendatacommons.org/licenses/odbl/</license></copyright></metadata>\n<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>\n`;
-    const blob = new Blob([xml], { type: 'application/gpx+xml' });
+    const fname = `wanderroute-${nf1.format(lp.total / 1000).replace(',', '-')}km.gpx`;
+    saveGpx(xml, fname, name);
+  }
+
+  // Handy: Teilen-Menü (Speichern in Dateien, Öffnen in Komoot, Outdooractive …); sonst normaler Download
+  async function saveGpx(xml, fname, title) {
+    const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    try {
+      const file = new File([xml], fname, { type: 'application/gpx+xml' });
+      if (touch && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title });
+        status(`GPX-Datei „${fname}“ geteilt.`);
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // Teilen abgebrochen
+    }
+    const blob = new Blob([xml], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `wanderroute-${nf1.format(lp.total / 1000).replace(',', '-')}km.gpx`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    a.href = url; a.download = fname; a.rel = 'noopener'; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60000);
+    status(`GPX-Datei „${fname}“ wird gespeichert (Ordner „Downloads“). Startet kein Download, die Seite bitte direkt im Browser öffnen – manche App-Ansichten blockieren Downloads.`);
   }
 
   /* ---------- Navigation ---------- */
