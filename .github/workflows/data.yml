@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -26,23 +26,23 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q osmium-tool
-          pip install osmium pillow
+          pip install osmium pillow numpy
 
-      - name: OSM-Daten laden, Wanderrouten und Waldflächen filtern
+      - name: OSM-Daten Deutschland laden, Wanderrouten und Waldflächen filtern
         run: |
           mkdir -p work && cd work
-          for r in nordrhein-westfalen rheinland-pfalz; do
-            curl -fsSL --retry 3 -o "$r.pbf" "https://download.geofabrik.de/europe/germany/$r-latest.osm.pbf"
-            osmium tags-filter "$r.pbf" r/route=hiking,foot -o "$r-routes.pbf"
-            osmium tags-filter "$r.pbf" wr/landuse=forest wr/natural=wood -o "$r-forest.pbf"
-            rm "$r.pbf"
-          done
-          osmium merge nordrhein-westfalen-routes.pbf rheinland-pfalz-routes.pbf -o routes.pbf
-          osmium merge nordrhein-westfalen-forest.pbf rheinland-pfalz-forest.pbf -o forest.pbf
+          curl -fsSL --retry 3 -o germany.poly https://download.geofabrik.de/europe/germany.poly
+          curl -fsSL --retry 3 -o germany.pbf https://download.geofabrik.de/europe/germany-latest.osm.pbf
+          osmium tags-filter germany.pbf r/route=hiking,foot -o routes.pbf
+          osmium tags-filter germany.pbf wr/landuse=forest wr/natural=wood -o forest.pbf
+          rm germany.pbf
           ls -lh
+          df -h .
 
       - name: Kacheln erzeugen
-        run: python3 scripts/build_tiles.py work/routes.pbf out --forest work/forest.pbf
+        run: |
+          python3 scripts/build_tiles.py work/routes.pbf out --forest work/forest.pbf --poly work/germany.poly
+          du -sh out
 
       - name: Auf Branch "data" veröffentlichen
         run: |
