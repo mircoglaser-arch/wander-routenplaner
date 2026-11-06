@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Wander-Routenplaner</title>
 <meta name="description" content="Wander-Routenplaner: Rundkurse und Start–Ziel-Touren bis 200 km aus offiziell markierten Wanderwegen – Köln, Bergisches Land, Eifel, Siebengebirge, Sauerland, Mosel und Rhein.">
-<meta name="theme-color" content="#1d4f91">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%221%22 y=%221%22 width=%2230%22 height=%2230%22 rx=%225%22 fill=%22%23fff%22 stroke=%22%231d4f91%22 stroke-width=%222%22/%3E%3Crect x=%224%22 y=%2212%22 width=%2224%22 height=%228%22 fill=%22%231d4f91%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#2a6b3f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%221%22 y=%221%22 width=%2230%22 height=%2230%22 rx=%225%22 fill=%22%23fff%22 stroke=%22%232a6b3f%22 stroke-width=%222%22/%3E%3Crect x=%224%22 y=%2212%22 width=%2224%22 height=%228%22 fill=%22%232a6b3f%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
@@ -14,8 +14,8 @@
 <style>
 /* Layout: Karte füllt den Bildschirm, Bedienung als Bogen unten (Handy) bzw. Spalte links (Desktop) */
 :root{
-  --bg:#edf2f8; --surface:#ffffff; --surface-2:#f3f7fc; --ink:#13202f; --muted:#56687e; --line:#d2dce8;
-  --forest:#1d4f91; --on-forest:#ffffff; --route:#d1006f; --blaze:#cf2f25; --sign:#f0c419;
+  --bg:#eef3ee; --surface:#ffffff; --surface-2:#f4f8f3; --ink:#16241a; --muted:#566a5c; --line:#d3ded4;
+  --forest:#2a6b3f; --on-forest:#ffffff; --route:#d1006f; --blaze:#cf2f25; --sign:#f0c419;
   --warn:#b4541a; --ok:#2e7d4f; --c-forest:#1f8a3b; --c-pfad:#6b3f1d; --c-waldweg:#b0702f; --c-schotter:#d4b06a; --c-asphalt:#5d6670; --c-unbekannt:#b8c2ce;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -23,12 +23,12 @@
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0c1420; --surface:#132031; --surface-2:#1a2a3e; --ink:#e4ecf6; --muted:#93a6be; --line:#27394f;
-  --forest:#6ea8ff; --on-forest:#07111f; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-pfad:#c98a55; --c-waldweg:#e6a35e; --c-schotter:#ead08f; --c-asphalt:#a6b0bc; --c-unbekannt:#5b6b80;
+  --bg:#0d1610; --surface:#142118; --surface-2:#1b2b20; --ink:#e5efe6; --muted:#97ab9c; --line:#29392e;
+  --forest:#6cc98a; --on-forest:#08140c; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-pfad:#c98a55; --c-waldweg:#e6a35e; --c-schotter:#ead08f; --c-asphalt:#a6b0bc; --c-unbekannt:#5b6b80;
   color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0c1420; --surface:#132031; --surface-2:#1a2a3e; --ink:#e4ecf6; --muted:#93a6be; --line:#27394f;
-  --forest:#6ea8ff; --on-forest:#07111f; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-pfad:#c98a55; --c-waldweg:#e6a35e; --c-schotter:#ead08f; --c-asphalt:#a6b0bc; --c-unbekannt:#5b6b80;
+  --bg:#0d1610; --surface:#142118; --surface-2:#1b2b20; --ink:#e5efe6; --muted:#97ab9c; --line:#29392e;
+  --forest:#6cc98a; --on-forest:#08140c; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-pfad:#c98a55; --c-waldweg:#e6a35e; --c-schotter:#ead08f; --c-asphalt:#a6b0bc; --c-unbekannt:#5b6b80;
   color-scheme:dark}
 
 *{box-sizing:border-box}
