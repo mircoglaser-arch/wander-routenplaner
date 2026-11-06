@@ -3,7 +3,7 @@
   'use strict';
   const TLAT = 0.1, TLON = 0.15;          // ca. 11 × 10,5 km pro Kachel
   const STATIC = 'https://raw.githubusercontent.com/mircoglaser-arch/wander-routenplaner/data/';
-  const DBN = 'wander-routenplaner-5', ST = 'tiles';
+  const DBN = 'wander-routenplaner-6', ST = 'tiles';
   const REGION = [49.9, 6.0, 51.5, 8.7];   // Köln, Bergisches Land, Eifel, Sauerland, Siebengebirge, Mosel, Rhein
   const SERVERS = [
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
@@ -152,11 +152,26 @@
     return WK.compactFromOverpass(j);
   }
 
+  // Verbindungswege kommen kompakt (ganzzahlige Differenzen in 1e-5 Grad) und ohne Routen
+  function decodeWay(w) {
+    let c;
+    if (w.q) {
+      c = new Float32Array(w.q.length); let la = 0, lo = 0;
+      for (let i = 0; i < w.q.length; i += 2) { la += w.q[i]; lo += w.q[i + 1]; c[i] = la / 1e5; c[i + 1] = lo / 1e5; }
+    } else c = Float32Array.from(w.c);
+    return { id: w.id, routes: w.routes || [], c, j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f, k: w.q ? 1 : 0 };
+  }
+
   /* ---------- Laden ---------- */
   // set: 'all' (alle markierten Wege) oder 'long' (Fern- und Regionalwege)
   async function load(keys, set, onProgress, isCancelled) {
     const ix = await index();
     const gen = ix ? ix.gen : 'overpass';
+    // Verbindungswege gibt es nur aus den vorbereiteten Daten (Deutschland), nicht über Overpass
+    if (set === 'conn') {
+      if (!ix || !ix.sets.conn) return { parts: [], failed: 0, cached: 0, source: 'none' };
+      keys = keys.filter(k => coverage(ix, set, k) !== 'outside');
+    }
     const parts = []; let done = 0, cached = 0, failed = 0, slow = 0;
     const todo = [];
     for (const k of keys) {
@@ -174,7 +189,7 @@
         const d = cov === 'have' ? await fetchStatic(set, k, gen) : await fetchOverpass(set, k);
         // Nur Kacheln speichern, die zum aktuellen Datenstand passen (CDN kann kurz Altes liefern)
         const fresh = cov !== 'have' || !d.gen || d.gen === gen;
-        const v = { gen: cov === 'have' ? (fresh ? gen : 'stale') : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(w => ({ id: w.id, routes: w.routes, c: Float32Array.from(w.c), j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f })) };
+        const v = { gen: cov === 'have' ? (fresh ? gen : 'stale') : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(decodeWay) };
         if (fresh) await put(`${set}:${k}`, v); else mem.set(`${set}:${k}`, v);
         parts.push(v);
         return true;

@@ -20,6 +20,7 @@
   const angDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
 
   const NET_RANK = { iwn: 4, nwn: 3, rwn: 2, lwn: 1 };
+  const CONN_FACTOR = 1.3;   // Verbindungswege nur, wo sie spürbar abkürzen
   const NET_FACTOR = { iwn: 0.85, nwn: 0.85, rwn: 0.92, lwn: 1 };
   const NET_LABEL = { iwn: 'Internationaler Weg', nwn: 'Fernwanderweg', rwn: 'Regionaler Weg', lwn: 'Lokaler Weg' };
 
@@ -69,9 +70,10 @@
       for (const r of p.rels) if (!rels.has(r.id)) rels.set(r.id, r.tags);
       for (const w of p.ways) {
         const old = ways.get(w.id);
-        if (!old) { ways.set(w.id, { id: w.id, routes: w.routes.slice(), c: w.c, j: w.j, s: w.s || 0, f: w.f == null ? -1 : w.f }); continue; }
+        if (!old) { ways.set(w.id, { id: w.id, routes: (w.routes || []).slice(), c: w.c, j: w.j, s: w.s || 0, f: w.f == null ? -1 : w.f, k: w.k || 0 }); continue; }
         if (!old.s && w.s) old.s = w.s; if (old.f < 0 && w.f >= 0) old.f = w.f;
-        for (const r of w.routes) if (!old.routes.includes(r)) old.routes.push(r);
+        for (const r of (w.routes || [])) if (!old.routes.includes(r)) old.routes.push(r);
+        if (old.routes.length) old.k = 0;
         const m = new Map();
         for (let k = 0; k < old.j.length; k += 2) m.set(old.j[k], old.j[k + 1]);
         for (let k = 0; k < w.j.length; k += 2) m.set(w.j[k], w.j[k + 1]);
@@ -90,9 +92,10 @@
     const getNode = (id, c) => { let i = nodeIdx.get(id); if (i === undefined) { i = nodeCoord.length; nodeIdx.set(id, i); nodeCoord.push(c); } return i; };
     const edges = []; const wayList = [];
     for (const w of data.ways) {
-      const routes = w.routes.filter(r => rels.has(r));
-      if (!routes.length || w.j.length < 4) continue;
-      let net = 1;
+      const routes = (w.routes || []).filter(r => rels.has(r));
+      const conn = !routes.length;   // unmarkierter Verbindungsweg
+      if ((conn && !w.k) || w.j.length < 4) continue;
+      let net = conn ? CONN_FACTOR : 1;
       for (const r of routes) net = Math.min(net, NET_FACTOR[rels.get(r).tags.network] || 1);
       const wi = wayList.length; wayList.push({ id: w.id, routes, c: w.c });
       const sc = w.s || 0, fs = w.f == null ? -1 : w.f;
@@ -105,7 +108,7 @@
         const a = getNode(w.j[k - 1], [c[2 * i0], c[2 * i0 + 1]]);
         const b = getNode(w.j[k + 1], [c[2 * i1], c[2 * i1 + 1]]);
         if (a === b && len <= 20) continue;
-        edges.push({ a, b, len, base: len * net, w: len * net, routes, wi, i0, i1, s: sc, f: fs });
+        edges.push({ a, b, len, base: len * net, w: len * net, routes, wi, i0, i1, s: sc, f: fs, conn });
       }
     }
     const n = nodeCoord.length;
@@ -142,12 +145,13 @@
   const SURF = { 1: 'pfad', 3: 'waldweg', 4: 'schotter', 2: 'asphalt', 0: 'unbekannt' };
   const edgeClass = e => SURF[e.s] || 'unbekannt';
   function routeStats(G, steps) {
-    const st = { pfad: 0, waldweg: 0, schotter: 0, asphalt: 0, unbekannt: 0, total: 0, forestAny: 0, hasForestData: false };
+    const st = { pfad: 0, waldweg: 0, schotter: 0, asphalt: 0, unbekannt: 0, total: 0, forestAny: 0, hasForestData: false, conn: 0 };
     for (const x of steps) {
       const e = G.edges[x.e];
       st.total += e.len;
       if (e.f >= 0) { st.forestAny += e.len * e.f / 100; st.hasForestData = true; }
       st[edgeClass(e)] += e.len;
+      if (e.conn) st.conn += e.len;
     }
     // Kompatibilität für die Bewertung
     st.paved = st.asphalt; st.unpaved = st.pfad + st.waldweg + st.schotter; st.unknown = st.unbekannt;
@@ -157,11 +161,11 @@
   function classRuns(G, steps) {
     const runs = [];
     for (const x of steps) {
-      const e = G.edges[x.e]; const cls = edgeClass(e);
+      const e = G.edges[x.e]; const cls = edgeClass(e), conn = !!e.conn;
       let c = edgeCoords(G, e); if (!x.fwd) c.reverse();
       const last = runs[runs.length - 1];
-      if (last && last.cls === cls) { for (let i = 1; i < c.length; i++) last.coords.push(c[i]); }
-      else runs.push({ cls, coords: c });
+      if (last && last.cls === cls && last.conn === conn) { for (let i = 1; i < c.length; i++) last.coords.push(c[i]); }
+      else runs.push({ cls, conn, coords: c });
     }
     return runs;
   }

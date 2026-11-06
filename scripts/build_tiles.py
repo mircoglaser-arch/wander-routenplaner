@@ -2,7 +2,8 @@
 """Wander-Routenplaner – bereitet markierte Wanderwege aus einer OSM-Datei in Kacheln auf.
 
 Eingabe: .osm.pbf (oder .osm), idealerweise schon auf route=hiking/foot gefiltert.
-Ausgabe: <out>/index.json, <out>/all/<i>_<j>.json.gz, <out>/long/<i>_<j>.json.gz
+Ausgabe: <out>/index.json, <out>/all|long|conn/<i>_<j>.json.gz
+  conn = unmarkierte Verbindungswege: {"id","q":[lat·1e5, lon·1e5, Δlat, Δlon, …],"j","s","f"}
 
 Kachelformat (wie im Client data.js):
   {"v":3,"rels":[{"id":..,"tags":{..}}],"ways":[{"id":..,"routes":[..],"c":[lat,lon,..],"j":[idx,nodeId,..],"s":0|1|2,"f":0..100}]}
@@ -132,33 +133,138 @@ class Rels(osmium.SimpleHandler):
                     lst.append(r.id)
 
 
-class Ways(osmium.SimpleHandler):
-    def __init__(self, wanted):
+CONN_HW = {'track', 'path', 'footway', 'bridleway', 'pedestrian', 'living_street', 'residential', 'unclassified',
+           'service', 'cycleway', 'steps'}
+BAD_SERVICE = {'driveway', 'parking_aisle', 'drive-through', 'emergency_access'}
+
+
+def is_connector(tags):
+    """Unmarkierter, zu Fuß nutzbarer Weg (keine Haupt- und Bundesstraßen, keine privaten Wege)."""
+    hw = tags.get('highway')
+    if hw not in CONN_HW:
+        return False
+    foot = tags.get('foot')
+    if foot == 'no':
+        return False
+    if tags.get('access') in ('private', 'no') and foot not in ('yes', 'designated', 'permissive'):
+        return False
+    if hw == 'service' and tags.get('service') in BAD_SERVICE:
+        return False
+    if tags.get('area') == 'yes':
+        return False
+    return True
+
+
+class Ids(osmium.SimpleHandler):
+    """Durchgang 1: Knoten-IDs aller genutzten Wege sammeln (für Kreuzungen), plus Ausdehnung."""
+    def __init__(self, marked):
         super().__init__()
-        self.wanted = wanted
-        self.ways = {}            # id -> (node ids, coords) als kompakte Arrays
-        self.surf = {}
-        self.bounds = [90.0, 180.0, -90.0, -180.0]
+        self.marked = marked
+        self.ids = array('q')
+        self.n_marked = self.n_conn = 0
 
     def way(self, w):
-        if w.id not in self.wanted:
+        if w.id in self.marked:
+            self.n_marked += 1
+        elif is_connector(w.tags):
+            self.n_conn += 1
+        else:
             return
-        ids, cs = array('q'), array('d')
-        b = self.bounds
+        for n in w.nodes:
+            self.ids.append(n.ref)
+
+
+class Writer(osmium.SimpleHandler):
+    """Durchgang 2: Wege mit Geometrie lesen und kachelweise als JSON-Fragmente auf die Platte schreiben."""
+    def __init__(self, rh, junction, fr, out):
+        super().__init__()
+        self.rh, self.junction, self.fr, self.out = rh, junction, fr, out
+        self.buf = defaultdict(list); self.size = defaultdict(int)
+        self.tile_rels = {'all': defaultdict(set), 'long': defaultdict(set)}
+        self.keys = {'all': set(), 'long': set(), 'conn': set()}
+
+    def emit(self, set_, key, frag):
+        k = (set_, key)
+        self.buf[k].append(frag); self.size[k] += len(frag)
+        self.keys[set_].add(key)
+        if self.size[k] > 400000:
+            self.flush(k)
+
+    def flush(self, k):
+        set_, (i, j) = k
+        with open(os.path.join(self.out, 'tmp', f'{set_}_{i}_{j}.part'), 'a') as f:
+            f.write(',\n'.join(self.buf[k]) + ',\n')
+        self.buf[k] = []; self.size[k] = 0
+
+    def flush_all(self):
+        for k in list(self.buf):
+            if self.buf[k]:
+                self.flush(k)
+
+    def way(self, w):
+        marked = w.id in self.rh.way_rels
+        if not marked and not is_connector(w.tags):
+            return
+        ids, cs = [], []
         for n in w.nodes:
             if not n.location.valid():
                 return
-            la, lo = round(n.location.lat, 5), round(n.location.lon, 5)
-            ids.append(n.ref); cs.append(la); cs.append(lo)
-            if la < b[0]: b[0] = la
-            if lo < b[1]: b[1] = lo
-            if la > b[2]: b[2] = la
-            if lo > b[3]: b[3] = lo
-        if len(ids) >= 2:
-            self.ways[w.id] = (ids, cs)
-            sc = surface_class(w.tags)
-            if sc:
-                self.surf[w.id] = sc
+            ids.append(n.ref); cs.append(round(n.location.lat, 5)); cs.append(round(n.location.lon, 5))
+        if len(ids) < 2:
+            return
+        arr = np.fromiter(ids, dtype=np.int64, count=len(ids))
+        pos = np.searchsorted(self.junction, arr)
+        pos[pos >= len(self.junction)] = 0
+        isj = self.junction[pos] == arr
+        isj[0] = True; isj[-1] = True
+        sc = surface_class(w.tags)
+        if marked:
+            routes = [r for r in self.rh.way_rels[w.id] if r in self.rh.rels]
+            if not routes:
+                return
+            j = []
+            for k in np.nonzero(isj)[0].tolist():
+                j += [k, ids[k]]
+            keep_c = cs
+        else:
+            # Verbindungsweg: Geometrie ausdünnen (Punkte unter ca. 20 m Abstand fallen weg, Kreuzungen bleiben)
+            keep_c, j, last = [], [], None
+            cosl = math.cos(math.radians(cs[0]))
+            for k in range(len(ids)):
+                la, lo = cs[2 * k], cs[2 * k + 1]
+                if not isj[k] and last is not None and abs(la - last[0]) * 111000 + abs(lo - last[1]) * 111000 * cosl < 20:
+                    continue
+                if isj[k]:
+                    j += [len(keep_c) // 2, ids[k]]
+                keep_c += [la, lo]; last = (la, lo)
+            routes = []
+        fs = forest_share(self.fr, keep_c)
+        keys = set()
+        for k in range(0, len(keep_c), 2):
+            keys.add(tile_of(keep_c[k], keep_c[k + 1]))
+            if k >= 2:
+                i0, j0 = tile_of(keep_c[k - 2], keep_c[k - 1]); i1, j1 = tile_of(keep_c[k], keep_c[k + 1])
+                if (i0, j0) != (i1, j1):
+                    for ii in range(min(i0, i1), max(i0, i1) + 1):
+                        for jj in range(min(j0, j1), max(j0, j1) + 1):
+                            keys.add((ii, jj))
+        if marked:
+            frag = json.dumps({'id': w.id, 'routes': routes, 'c': keep_c, 'j': j, 's': sc, 'f': fs}, separators=(',', ':'))
+            long_routes = [r for r in routes if self.rh.rels[r].get('network') in LONG_NETS]
+            frag_l = json.dumps({'id': w.id, 'routes': long_routes, 'c': keep_c, 'j': j, 's': sc, 'f': fs}, separators=(',', ':')) if long_routes else None
+            for key in keys:
+                self.emit('all', key, frag); self.tile_rels['all'][key].update(routes)
+                if frag_l:
+                    self.emit('long', key, frag_l); self.tile_rels['long'][key].update(long_routes)
+        else:
+            # kompakt: Koordinaten als ganzzahlige Differenzen in 1e-5 Grad
+            q, pl, po = [], 0, 0
+            for k in range(0, len(keep_c), 2):
+                a_, b_ = int(round(keep_c[k] * 1e5)), int(round(keep_c[k + 1] * 1e5))
+                q += [a_ - pl, b_ - po]; pl, po = a_, b_
+            frag = json.dumps({'id': w.id, 'q': q, 'j': j, 's': sc, 'f': fs}, separators=(',', ':'))
+            for key in keys:
+                self.emit('conn', key, frag)
 
 
 def tile_of(lat, lon):
@@ -204,88 +310,62 @@ def covered_tiles(rings, sub=8):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('input')
+    ap.add_argument('input', help='OSM-Datei mit Wanderrouten und Wegen (route=hiking/foot, highway=…)')
     ap.add_argument('out')
-    ap.add_argument('--bbox', help='S,W,N,E – nur Kacheln in diesem Rechteck schreiben')
     ap.add_argument('--forest', help='OSM-Datei mit Wald-/Gehölzflächen')
     ap.add_argument('--poly', help='Geofabrik-.poly des abgedeckten Gebiets')
     a = ap.parse_args()
     t0 = time.time()
+    os.makedirs(os.path.join(a.out, 'tmp'), exist_ok=True)
 
     rh = Rels(); rh.apply_file(a.input)
     print(f'{len(rh.rels)} Wanderrouten, {len(rh.way_rels)} Wege referenziert', flush=True)
-    wh = Ways(set(rh.way_rels)); wh.apply_file(a.input, locations=True, idx='flex_mem')
-    print(f'{len(wh.ways)} Wege mit Geometrie', flush=True)
+
+    ih = Ids(set(rh.way_rels)); ih.apply_file(a.input)
+    print(f'{ih.n_marked} markierte Wege, {ih.n_conn} Verbindungswege, {len(ih.ids)} Knotenbezüge', flush=True)
+    allids = np.frombuffer(ih.ids, dtype=np.int64)
+    u, cnt = np.unique(allids, return_counts=True)
+    junction = u[cnt > 1].copy()
+    del ih, allids, u, cnt
+    print(f'{len(junction)} Kreuzungspunkte ({time.time() - t0:.0f} s)', flush=True)
 
     fr = None
-    if a.forest and Image is not None and wh.ways:
-        b = wh.bounds
-        fr = Forest((b[0] - 0.05, b[1] - 0.05, b[2] + 0.05, b[3] + 0.05))
+    if a.forest and Image is not None:
+        bb = (47.0, 5.5, 55.2, 15.5)
+        if a.poly:
+            pts = [p for r in read_poly(a.poly) for p in r]
+            bb = (min(p[1] for p in pts) - 0.05, min(p[0] for p in pts) - 0.05, max(p[1] for p in pts) + 0.05, max(p[0] for p in pts) + 0.05)
+        fr = Forest(bb)
         fr.apply_file(a.forest, locations=True, idx='flex_mem')
         fr.finish()
-        print(f'{fr.count} Waldflächen gerastert ({fr.W} × {fr.H})', flush=True)
+        print(f'{fr.count} Waldflächen gerastert ({fr.W} × {fr.H}, {time.time() - t0:.0f} s)', flush=True)
 
-    # Kreuzungen: Knoten, die in mehreren Wegen vorkommen, plus Wegenden
-    allids = np.concatenate([np.frombuffer(ids, dtype=np.int64) for ids, _ in wh.ways.values()])
-    u, cnt = np.unique(allids, return_counts=True)
-    junction = set(u[cnt > 1].tolist())
-    del allids, u, cnt
-    print(f'{len(junction)} Kreuzungspunkte', flush=True)
+    wr = Writer(rh, junction, fr, a.out)
+    wr.apply_file(a.input, locations=True, idx='flex_mem')
+    wr.flush_all()
+    print(f'Wege geschrieben ({time.time() - t0:.0f} s)', flush=True)
 
-    bbox = [float(x) for x in a.bbox.split(',')] if a.bbox else None
-    tiles = {'all': defaultdict(list), 'long': defaultdict(list)}
-    for wid, (ids, cs) in wh.ways.items():
-        routes = [r for r in rh.way_rels[wid] if r in rh.rels]
-        if not routes:
-            continue
-        j = []
-        last = len(ids) - 1
-        for k, n in enumerate(ids):
-            if k == 0 or k == last or n in junction:
-                j += [k, n]
-        keys = set()
-        for k in range(0, len(cs), 2):
-            keys.add(tile_of(cs[k], cs[k + 1]))
-            if k >= 2:  # lange Segmente: alle überstrichenen Kacheln
-                i0, j0 = tile_of(cs[k - 2], cs[k - 1]); i1, j1 = tile_of(cs[k], cs[k + 1])
-                if (i0, j0) != (i1, j1):
-                    for ii in range(min(i0, i1), max(i0, i1) + 1):
-                        for jj in range(min(j0, j1), max(j0, j1) + 1):
-                            keys.add((ii, jj))
-        long_routes = [r for r in routes if rh.rels[r].get('network') in LONG_NETS]
-        sc, fs = wh.surf.get(wid, 0), forest_share(fr, cs)
-        rec = {'id': wid, 'routes': routes, 'c': cs, 'j': j, 's': sc, 'f': fs}
-        rec_long = {'id': wid, 'routes': long_routes, 'c': cs, 'j': j, 's': sc, 'f': fs} if long_routes else None
-        for key in keys:
-            if bbox:
-                s, w_, n_, e = bbox
-                if (key[0] + 1) * TLAT < s or key[0] * TLAT > n_ or (key[1] + 1) * TLON < w_ or key[1] * TLON > e:
-                    continue
-            tiles['all'][key].append(rec)
-            if rec_long:
-                tiles['long'][key].append(rec_long)
-
-    os.makedirs(a.out, exist_ok=True)
     gen = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     index = {'v': 3, 'generated': gen, 'tile': [TLAT, TLON], 'sets': {}}
     total = 0
-    for name, tl in tiles.items():
+    for name in ('all', 'long', 'conn'):
         d = os.path.join(a.out, name); os.makedirs(d, exist_ok=True)
-        keys = []
-        for (i, jx), ways in tl.items():
-            rel_ids = sorted({r for w in ways for r in w['routes']})
-            doc = {'v': 3, 'gen': gen, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rel_ids],
-                   'ways': [dict(w, c=w['c'].tolist()) for w in ways]}
-            raw = json.dumps(doc, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+        keys = sorted(wr.keys[name])
+        for (i, jx) in keys:
+            part = os.path.join(a.out, 'tmp', f'{name}_{i}_{jx}.part')
+            with open(part) as f:
+                body = f.read().rstrip().rstrip(',')
+            os.remove(part)
+            rels = sorted(wr.tile_rels[name][(i, jx)]) if name != 'conn' else []
+            head = json.dumps({'v': 3, 'gen': gen, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rels]}, separators=(',', ':'), ensure_ascii=False)
+            raw = (head[:-1] + ',"ways":[' + body + ']}').encode('utf-8')
             path = os.path.join(d, f'{i}_{jx}.json.gz')
             with open(path, 'wb') as f:
                 f.write(gzip.compress(raw, 9, mtime=0))
             total += os.path.getsize(path)
-            keys.append(f'{i}_{jx}')
-        index['sets'][name] = sorted(keys)
+        index['sets'][name] = [f'{i}_{jx}' for (i, jx) in keys]
         print(f'{name}: {len(keys)} Kacheln', flush=True)
-    if bbox:
-        index['bbox'] = bbox
+    os.rmdir(os.path.join(a.out, 'tmp'))
     if a.poly and Image is not None:
         index['cover'] = covered_tiles(read_poly(a.poly))
         print(f'abgedeckt: {len(index["cover"])} Kacheln', flush=True)

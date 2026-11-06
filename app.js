@@ -68,7 +68,7 @@
 
   const S = {
     start: null, startLabel: '', region: store.get('area', 'sieben'), L: store.get('len', 12),
-    mode: store.get('mode', 'loop'), nature: store.get('nature', true), sort: 'best', end: null, endLabel: '', cancel: false, busy: false,
+    mode: store.get('mode', 'loop'), nature: store.get('nature', true), conn: store.get('conn', false), sort: 'best', end: null, endLabel: '', cancel: false, busy: false,
     G: null, loaded: null, snap: null, loops: [], sel: -1, picking: false,
     gpsLL: null, gpsAcc: null, watch: null, nav: null, wake: null
   };
@@ -125,6 +125,8 @@
     $('results').hidden = true; $('results').innerHTML = ''; $('detail').hidden = true; $('detail').innerHTML = '';
     if (S.nav) stopNav();
   }
+  const connEl = $('connOpt'); connEl.checked = S.conn;
+  connEl.onchange = () => { S.conn = connEl.checked; store.set('conn', S.conn); if (S.loops.length) status('Einstellung geändert. „' + $('btnRun').textContent + '“ antippen, um neu zu berechnen.'); };
   const natEl = $('nature'); natEl.checked = S.nature;
   natEl.onchange = () => { S.nature = natEl.checked; store.set('nature', S.nature); if (S.G) WK.setWeights(S.G, S.nature); if (S.loops.length) status('Einstellung geändert. „' + $('btnRun').textContent + '“ antippen, um neu zu berechnen.'); };
   $('modeLoop').onclick = () => setMode('loop');
@@ -308,8 +310,9 @@
   }
 
   // extra: Kacheln mit allen Wegen rund um Start/Ziel, damit lange Touren auch abseits der Fernwege beginnen können
-  async function loadTiles(keys, set, extra = []) {
-    const sig = k => set + ':' + k, need = keys.map(sig).concat(extra.map(k => 'all:' + k));
+  // conn: Kacheln mit unmarkierten Verbindungswegen (nur wenn erlaubt)
+  async function loadTiles(keys, set, extra = [], conn = []) {
+    const sig = k => set + ':' + k, need = keys.map(sig).concat(extra.map(k => 'all:' + k), conn.map(k => 'conn:' + k));
     if (S.loaded && S.loaded.tiles && need.every(k => S.loaded.tiles.has(k))) return S.G;
     const what = set === 'long' ? 'Fern- und Regionalwege' : 'markierte Wanderwege';
     S.cancel = false;
@@ -319,17 +322,18 @@
     let finished = false;
     const iv = setInterval(() => { if (!finished) show(); }, 1000);
     let res;
-    let ex = { parts: [], failed: 0 };
+    let ex = { parts: [], failed: 0 }, cx = { parts: [], failed: 0 };
     try {
-      [ex, res] = await Promise.all([
+      [ex, cx, res] = await Promise.all([
         extra.length ? Tiles.load(extra, 'all', () => {}, () => S.cancel) : Promise.resolve(ex),
+        conn.length ? Tiles.load(conn, 'conn', () => {}, () => S.cancel) : Promise.resolve(cx),
         Tiles.load(keys, set, p => { last = p; if (!finished) show(); }, () => S.cancel)]);
     } finally { finished = true; clearInterval(iv); }
     refreshOffline();
     if (S.cancel) throw new Error('cancel');
     if (!res.parts.length || res.failed > keys.length * 0.3) throw new Error('load');
     status('Baue Wegenetz …', null, 0.29); await sleep(20);
-    const G = WK.buildGraph(WK.mergeCompact(ex.parts.concat(res.parts)));
+    const G = WK.buildGraph(WK.mergeCompact(ex.parts.concat(cx.parts, res.parts)));
     S.G = G; S.loaded = { tiles: new Set(need), set, failed: res.failed };
     drawNetwork(G);
     return G;
@@ -364,6 +368,7 @@
     netLayer.clearLayers();
     if (G.wayList.length > 6000) { if (map.hasLayer(netLayer)) map.removeLayer(netLayer); return; }
     for (const w of G.wayList) {
+      if (!w.routes.length) continue;   // Verbindungswege nicht als Netz zeichnen
       L.polyline(WK.wayCoords(w), { renderer, color: netColor(G, w.routes), weight: 4, opacity: 0.18 })
         .on('click', ev => { if (!S.picking) routePopup(w.routes, ev.latlng); })
         .addTo(netLayer);
@@ -448,8 +453,8 @@
     const L_m = S.L * 1000;
     const long = S.L > LONG_KM;
     const G = long
-      ? await loadTiles(Tiles.tilesCircle(S.start, Math.min(80000, L_m * 0.36 + 3000)), 'long', Tiles.tilesCircle(S.start, 5000))
-      : await shortNet(Tiles.tilesCircle(S.start, Math.min(27000, Math.max(3500, L_m * 0.42 + 1500))), () => loadNetwork(S.start, Math.min(16000, Math.max(3500, L_m * 0.42 + 1500)), false));
+      ? await loadTiles(Tiles.tilesCircle(S.start, Math.min(80000, L_m * 0.36 + 3000)), 'long', Tiles.tilesCircle(S.start, 5000), S.conn ? Tiles.tilesCircle(S.start, 5000) : [])
+      : await shortNet(Tiles.tilesCircle(S.start, Math.min(27000, Math.max(3500, L_m * 0.42 + 1500))), () => loadNetwork(S.start, Math.min(16000, Math.max(3500, L_m * 0.42 + 1500)), false), S.conn ? Tiles.tilesCircle(S.start, 5000) : []);
     if (!G.edges.length) throw new Error('none');
     WK.setWeights(G, S.nature);
     const snap = snapOrThrow(G, S.start, L_m * 0.8, 'Start', long);
@@ -471,9 +476,12 @@
     const d = WK.hav(S.start, S.end);
     const long = d > LONG_KM * 1000;
     const mid = [(S.start[0] + S.end[0]) / 2, (S.start[1] + S.end[1]) / 2];
+    // Verbindungswege: Streifen entlang der Luftlinie (schmaler bei langen Strecken) und rund um Start und Ziel
+    const ends = Tiles.tilesCircle(S.start, 5000).concat(Tiles.tilesCircle(S.end, 5000));
+    const band = S.conn ? [...new Set(Tiles.tilesCorridor(S.start, S.end, d <= 60000 ? 5000 : d <= 200000 ? 3000 : 2000).concat(ends))] : [];
     const G = long
-      ? await loadTiles(Tiles.tilesCorridor(S.start, S.end, 12000 + d * 0.12), 'long', Tiles.tilesCircle(S.start, 5000).concat(Tiles.tilesCircle(S.end, 5000)))
-      : await shortNet(Tiles.tilesCorridor(S.start, S.end, 4000 + d * 0.15), () => loadNetwork(mid, Math.min(16000, d / 2 + 4000), false));
+      ? await loadTiles(Tiles.tilesCorridor(S.start, S.end, 12000 + d * 0.12), 'long', [...new Set(ends.concat(band))], band)
+      : await shortNet(Tiles.tilesCorridor(S.start, S.end, 4000 + d * 0.15), () => loadNetwork(mid, Math.min(16000, d / 2 + 4000), false), band);
     if (!G.edges.length) throw new Error('none');
     WK.setWeights(G, S.nature);
     const sa = snapOrThrow(G, S.start, d * 0.5, 'Start', long);
@@ -486,13 +494,13 @@
     await showResults();
     S.crow = d;
     const best = Math.min(...S.loops.map(x => x.total));
-    status(`${S.loops.length} Variante${S.loops.length > 1 ? 'n' : ''} von ${S.startLabel} nach ${S.endLabel}. Luftlinie ${km(d)} km, kürzeste Strecke über markierte Wanderwege ${km(best)} km (${nf1.format(best / d)}-fach). Markierte Wege verlaufen kurviger als die Luftlinie und verbinden Regionen oft nur an wenigen Stellen.${long ? ' Ab 60 km nutzt die App Fern- und Regionalwege.' : ''}`, null, 1);
+    status(`${S.loops.length} Variante${S.loops.length > 1 ? 'n' : ''} von ${S.startLabel} nach ${S.endLabel}. Luftlinie ${km(d)} km, kürzeste Strecke ${km(best)} km (${nf1.format(best / d)}-fach)${S.conn ? ', mit Verbindungswegen' : ' über markierte Wanderwege'}. ${S.conn ? '' : 'Markierte Wege verlaufen kurviger als die Luftlinie und verbinden Regionen oft nur an wenigen Stellen – mit „Verbindungswege erlauben“ wird es kürzer. '}${long ? 'Ab 60 km nutzt die App Fern- und Regionalwege.' : ''}`, null, 1);
   }
 
   // Kurze Touren: vorbereitete Kacheln mit allen Wegen, sonst direkte Overpass-Abfrage
-  async function shortNet(keys, fallback) {
+  async function shortNet(keys, fallback, conn = []) {
     const ix = await Tiles.index();
-    return ix ? loadTiles(keys, 'all') : fallback();
+    return ix ? loadTiles(keys, 'all', [], conn) : fallback();
   }
 
   async function showResults() {
@@ -518,7 +526,7 @@
     if (zwA) { rows.push({ zuweg: 'start', len: sa.dist, coords: [A, G.nodeCoord[sa.node]], at }); at += sa.dist; }
     for (const s of segs) { rows.push({ rel: s.rel, len: s.len, coords: s.coords, at }); at += s.len; }
     if (zwB) rows.push({ zuweg: S.mode === 'loop' ? 'back' : 'end', len: sb.dist, coords: [G.nodeCoord[sb.node], B], at });
-    const relSet = [...new Set(segs.map(s => s.rel))];
+    const relSet = [...new Set(segs.map(s => s.rel).filter(r => r != null))];
     const st = WK.routeStats(G, lp.steps);
     const zwLen = (zwA ? sa.dist : 0) + (zwB ? sb.dist : 0);
     st.unknown += zwLen; st.total += zwLen;
@@ -562,7 +570,7 @@
     const pt = c => (wx(c[1], z) - ox).toFixed(1) + ',' + (wy(c[0], z) - oy).toFixed(1);
     const path = c => c.map(pt).join(' ');
     const halo = `<polyline points="${path(lp.coords)}" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>`;
-    const lines = lp.runs.map(r => `<polyline points="${path(r.coords)}" fill="none" stroke="var(${CLS[r.cls]})" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"${r.cls === 'none' ? ' stroke-dasharray="4 4"' : ''}/>`).join('');
+    const lines = lp.runs.map(r => `<polyline points="${path(r.coords)}" fill="none" stroke="var(${CLS[r.cls]})" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"${r.cls === 'none' ? ' stroke-dasharray="4 4"' : r.conn ? ' stroke-dasharray="1 5"' : ''}/>`).join('');
     const [sx, sy] = pt(lp.coords[0]).split(','), [ex, ey] = pt(lp.coords[lp.coords.length - 1]).split(',');
     const marks = `<circle cx="${sx}" cy="${sy}" r="5.5" fill="var(--forest)" stroke="#fff" stroke-width="2"/>` + (S.mode === 'ab' ? `<circle cx="${ex}" cy="${ey}" r="5.5" fill="var(--blaze)" stroke="#fff" stroke-width="2"/>` : '');
     return `<svg class="mini" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="${W}" height="${H}" fill="var(--surface-2)"/><g class="tiles">${imgs}</g>${halo}${lines}${marks}</svg>`;
@@ -576,7 +584,7 @@
     return `${miniMap(lp)}
       <div class="cbody">
         <div class="ctop"><span class="v">${VAR[lp.idx]}</span><span class="km">${km(lp.total)}<small> km</small></span></div>
-        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}${st.hasForestData ? ` · <span class="wald">${pct(st.forestAny, st.total)} % im Wald</span>` : ''}${S.mode === 'ab' && S.loops.length ? (() => { const b = Math.min(...S.loops.map(x => x.total)); const extra = Math.round(100 * (lp.total / b - 1)); return extra > 0 ? ` · <b>+${extra} %</b> zur kürzesten` : ' · <b>kürzeste</b>'; })() : ''}</div>
+        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}${st.hasForestData ? ` · <span class="wald">${pct(st.forestAny, st.total)} % im Wald</span>` : ''}${st.conn > 50 ? ` · ${pct(st.conn, st.total)} % Verbindungswege` : ''}${S.mode === 'ab' && S.loops.length ? (() => { const b = Math.min(...S.loops.map(x => x.total)); const extra = Math.round(100 * (lp.total / b - 1)); return extra > 0 ? ` · <b>+${extra} %</b> zur kürzesten` : ' · <b>kürzeste</b>'; })() : ''}</div>
         ${mixBar(sh)}
         <ul class="surf">${sh.map(x => `<li${x.p ? '' : ' class="zero"'}><i style="background:var(${x.color})"></i>${x.label}<b>${x.p} %</b></li>`).join('')}</ul>
       </div>`;
@@ -613,7 +621,7 @@
     });
     const lp = S.loops[S.sel];
     L.polyline(lp.coords, { color: '#ffffff', weight: 10, opacity: 0.95, interactive: false }).addTo(loopLayer);
-    for (const r of lp.runs) L.polyline(r.coords, { color: css(CLS[r.cls]), weight: 6, opacity: 1, interactive: false, dashArray: r.cls === 'none' ? '6 6' : null }).addTo(loopLayer);
+    for (const r of lp.runs) L.polyline(r.coords, { color: css(CLS[r.cls]), weight: 6, opacity: 1, interactive: false, dashArray: r.cls === 'none' ? '6 6' : r.conn ? '2 9' : null, lineCap: 'round' }).addTo(loopLayer);
     // Richtungspfeile alle ~1,5 km
     const step = Math.max(800, lp.total / 10);
     for (let d = step / 2; d < lp.total; d += step) {
@@ -649,6 +657,7 @@
     const time = WK.walkTime(lp.total / 1000, lp.up || 0, lp.down || 0);
     const rows = lp.rows.map((r, k) => {
       if (r.zuweg) return `<li class="seg zuweg" tabindex="0" data-k="${k}"><span class="at">km ${km(r.at)}</span><span class="zw" aria-hidden="true"></span><span class="nm"><b>${r.zuweg === 'start' ? 'Zuweg zum Wegenetz' : r.zuweg === 'back' ? 'Rückweg zum Start' : 'Weg zum Ziel'}</b><span>ohne Markierung, Luftlinie</span></span><span class="len">${km(r.len)} km</span></li>`;
+      if (r.rel == null) return `<li class="seg zuweg" tabindex="0" data-k="${k}"><span class="at">km ${km(r.at)}</span><span class="zw conn" aria-hidden="true"></span><span class="nm"><b>Verbindungsweg</b><span>unmarkiert</span></span><span class="len">${km(r.len)} km</span></li>`;
       const t = G.rels.get(r.rel).tags; const lb = WK.routeLabel(t);
       const sub = [lb.ref, WK.NET_LABEL[t.network]].filter(Boolean).map(esc).join(' · ');
       return `<li class="seg" tabindex="0" data-k="${k}"><span class="at">km ${km(r.at)}</span>${WK.osmcSVG(t, 22)}<span class="nm"><b>${esc(lb.title)}</b><span>${sub}</span></span><span class="len">${km(r.len)} km</span></li>`;
@@ -664,6 +673,7 @@
         <h3 class="h3">Wegbeschaffenheit</h3>
         ${mixBar(shares100(lp.st))}
         <ul class="surf big">${shares100(lp.st).map(x => `<li${x.p ? '' : ' class="zero"'}><i style="background:var(${x.color})"></i>${x.label}<b>${x.p} % · ${km(lp.st[x.k] + (x.k === 'unbekannt' ? lp.total - lp.st.total : 0))} km</b></li>`).join('')}</ul>
+        ${lp.st.conn > 0 ? `<p class="note">${km(lp.st.conn)} km (${pct(lp.st.conn, lp.st.total)} %) führen über unmarkierte Verbindungswege – auf der Karte gepunktet.</p>` : ''}
         ${lp.st.hasForestData ? `<p class="note"><span class="wald">${pct(lp.st.forestAny, lp.st.total)} % der Strecke führen durch Wald</span> (unabhängig von der Wegart).</p>` : ''}
       </div>
       <div>${profileSVG(lp)}</div>
@@ -796,7 +806,7 @@
   function gpx(lp) {
     const name = S.mode === 'loop' ? `Wander-Routenplaner ${km(lp.total)} km – Rundkurs ab ${S.startLabel}` : `Wander-Routenplaner ${km(lp.total)} km – ${S.startLabel} nach ${S.endLabel}`;
     const pts = lp.coords.map(c => `<trkpt lat="${c[0].toFixed(6)}" lon="${c[1].toFixed(6)}"/>`).join('\n');
-    const desc = lp.rows.map(r => r.zuweg ? `ohne Markierung ${km(r.len)} km` : `${WK.routeLabel(S.G.rels.get(r.rel).tags).title} ${km(r.len)} km`).join(' | ');
+    const desc = lp.rows.map(r => r.zuweg ? `ohne Markierung ${km(r.len)} km` : r.rel == null ? `Verbindungsweg ${km(r.len)} km` : `${WK.routeLabel(S.G.rels.get(r.rel).tags).title} ${km(r.len)} km`).join(' | ');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Wander-Routenplaner" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${esc(name)}</name><desc>${esc(desc)}</desc><copyright author="OpenStreetMap contributors"><license>https://opendatacommons.org/licenses/odbl/</license></copyright></metadata>\n<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>\n`;
     const blob = new Blob([xml], { type: 'application/gpx+xml' });
     const a = document.createElement('a');

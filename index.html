@@ -147,6 +147,8 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
 .toggle input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--forest);flex:0 0 auto}
 .toggle span{display:flex;flex-direction:column;font-size:12px;color:var(--muted)}
 .toggle b{font-size:14px;color:var(--ink);font-weight:600}
+.toggle.tight{border-top:0;padding-top:0}
+.zw.conn{border-style:dotted;border-color:var(--forest)}
 .shares{display:flex;flex-direction:column;gap:8px}
 .shares .mix{height:8px}
 @media (max-width:420px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -261,7 +263,8 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
       <div class="note" id="lenNote" hidden>Ab 60 km kombiniert die App nur Fern- und Regionalwege (z.&nbsp;B. Rheinsteig, Eifelsteig, Hauptwanderwege der Wandervereine). So bleiben auch Touren bis 200 km übersichtlich und schnell berechnet.</div>
     </div>
 
-    <label class="toggle" for="nature"><input type="checkbox" id="nature" checked><span><b>Naturwege bevorzugen</b>Wald und unbefestigte Wege vor Asphalt</span></label>
+    <label class="toggle" for="connOpt"><input type="checkbox" id="connOpt"><span><b>Verbindungswege erlauben</b>Unmarkierte Wald-, Feld- und Nebenwege nutzen, wo sie Umwege sparen – ohne Hauptstraßen</span></label>
+    <label class="toggle tight" for="nature"><input type="checkbox" id="nature" checked><span><b>Naturwege bevorzugen</b>Wald und unbefestigte Wege vor Asphalt</span></label>
     <button class="primary" id="btnRun" type="button">Rundwege finden</button>
     <div class="status" id="status" aria-live="polite"><div class="bar"><i id="prog"></i></div><span id="statusText">Startpunkt wählen, Länge einstellen, dann Rundwege berechnen.</span></div>
 

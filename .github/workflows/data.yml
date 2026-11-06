@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -28,12 +28,12 @@ jobs:
           sudo apt-get install -y -q osmium-tool
           pip install osmium pillow numpy
 
-      - name: OSM-Daten Deutschland laden, Wanderrouten und Waldflächen filtern
+      - name: OSM-Daten Deutschland laden, Wanderrouten, Wege und Waldflächen filtern
         run: |
           mkdir -p work && cd work
           curl -fsSL --retry 3 -o germany.poly https://download.geofabrik.de/europe/germany.poly
           curl -fsSL --retry 3 -o germany.pbf https://download.geofabrik.de/europe/germany-latest.osm.pbf
-          osmium tags-filter germany.pbf r/route=hiking,foot -o routes.pbf
+          osmium tags-filter germany.pbf r/route=hiking,foot w/highway=track,path,footway,bridleway,pedestrian,living_street,residential,unclassified,service,cycleway,steps -o routes.pbf
           osmium tags-filter germany.pbf wr/landuse=forest wr/natural=wood -o forest.pbf
           rm germany.pbf
           ls -lh
