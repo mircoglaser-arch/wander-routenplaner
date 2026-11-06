@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wander-Routenplaner</title>
+<meta name="description" content="Wander-Routenplaner: Rundkurse und Start–Ziel-Touren bis 200 km aus offiziell markierten Wanderwegen – Köln, Bergisches Land, Eifel, Siebengebirge, Sauerland, Mosel und Rhein.">
+<meta name="theme-color" content="#1d5a3a">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%221%22 y=%221%22 width=%2230%22 height=%2230%22 rx=%225%22 fill=%22%23fff%22 stroke=%22%231d5a3a%22 stroke-width=%222%22/%3E%3Crect x=%224%22 y=%2212%22 width=%2224%22 height=%228%22 fill=%22%23cf2f25%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: Karte füllt den Bildschirm, Bedienung als Bogen unten (Handy) bzw. Spalte links (Desktop) */
+:root{
+  --bg:#eef2ee; --surface:#ffffff; --surface-2:#f5f8f5; --ink:#17231b; --muted:#5a6a60; --line:#d3dcd5;
+  --forest:#1d5a3a; --on-forest:#ffffff; --route:#2747c9; --blaze:#cf2f25; --sign:#f0c419;
+  --warn:#b4541a; --ok:#2e7d4f;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:10px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1511; --surface:#162019; --surface-2:#1c2820; --ink:#e6eee8; --muted:#97a89d; --line:#2a382f;
+  --forest:#62c08a; --on-forest:#07130c; --route:#8aa2ff; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1511; --surface:#162019; --surface-2:#1c2820; --ink:#e6eee8; --muted:#97a89d; --line:#2a382f;
+  --forest:#62c08a; --on-forest:#07130c; --route:#8aa2ff; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+.app{position:fixed;inset:0;display:flex;flex-direction:column}
+#map{flex:1 1 auto;min-height:0;background:var(--surface-2)}
+
+.sheet{flex:0 0 auto;max-height:52%;overflow-y:auto;background:var(--surface);border-top:1px solid var(--line);
+  box-shadow:0 -6px 24px rgba(0,0,0,.12);border-radius:16px 16px 0 0;margin-top:-16px;position:relative;z-index:500;
+  padding-block:6px calc(18px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  transition:max-height .25s ease;-webkit-overflow-scrolling:touch}
+.sheet.expanded{max-height:88%}
+.grip{display:block;margin:2px auto 8px;width:56px;height:20px;border:0;background:none;cursor:pointer;position:relative}
+.grip::before{content:"";position:absolute;left:12px;right:12px;top:8px;height:4px;border-radius:2px;background:var(--line)}
+.grip:focus-visible{outline:2px solid var(--route);border-radius:6px}
+
+@media (min-width:900px){
+  .app{flex-direction:row-reverse}
+  .sheet{flex:0 0 400px;max-height:none;height:100%;border-radius:0;margin-top:0;border-top:0;border-right:1px solid var(--line);box-shadow:none;padding-top:20px}
+  .grip{display:none}
+}
+
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.brand h1{font:700 26px/1 var(--f-display);letter-spacing:.01em;margin:0}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.blaze{flex:0 0 auto;width:34px;height:34px;border-radius:4px;background:#fff;border:1px solid var(--line);display:grid;place-items:center}
+.blaze i{display:block;width:26px;height:9px;background:var(--blaze)}
+
+.block{display:flex;flex-direction:column;gap:8px;padding-block:12px;border-top:1px solid var(--line)}
+.lbl{font:600 13px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;justify-content:space-between;align-items:baseline}
+.lbl output{font:700 22px/1 var(--f-display);color:var(--ink);letter-spacing:0;text-transform:none}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn[aria-pressed="true"]{background:var(--forest);color:var(--on-forest);border-color:var(--forest)}
+.btn svg{width:16px;height:16px}
+.btn:focus-visible,.chip:focus-visible,.primary:focus-visible,.card:focus-visible,.seg:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;cursor:pointer;font:600 14px/1.1 var(--f-display);letter-spacing:.02em}
+.chip[aria-pressed="true"]{background:var(--sign);border-color:var(--sign);color:#1b1b14}
+.modes{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:12px}
+.modes button{border:0;background:var(--surface-2);padding:10px;font:600 16px/1 var(--f-display);letter-spacing:.03em;cursor:pointer;color:var(--muted)}
+.modes button+button{border-left:1px solid var(--line)}
+.modes button[aria-pressed="true"]{background:var(--forest);color:var(--on-forest)}
+.modes button:focus-visible{outline:2px solid var(--route);outline-offset:-2px}
+.offline summary{cursor:pointer;list-style:none}
+.offline summary::-webkit-details-marker{display:none}
+.offline summary::after{content:"+";font:700 18px/1 var(--f-display);color:var(--muted)}
+.offline[open] summary::after{content:"–"}
+.mk-end{width:30px;height:30px;border-radius:50%;background:var(--blaze);color:#fff;border:3px solid #fff;display:grid;place-items:center;font:700 15px/1 var(--f-display);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.startinfo{font-size:13px;color:var(--muted);min-height:1.2em}
+.startinfo b{color:var(--ink);font-weight:600}
+
+input[type=range]{width:100%;accent-color:var(--forest);height:28px}
+.scale{display:flex;justify-content:space-between;font:500 12px/1 var(--f-display);color:var(--muted);font-variant-numeric:tabular-nums;margin-top:-4px}
+
+.primary{width:100%;margin-top:4px;padding:13px;border:0;border-radius:var(--r);background:var(--forest);color:var(--on-forest);font:700 18px/1 var(--f-display);letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+.primary:disabled{opacity:.55;cursor:progress}
+
+.status{margin-top:10px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+.status .bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.status .bar i{display:block;height:100%;width:0;background:var(--forest);transition:width .2s}
+.status.err{color:var(--warn)}
+
+.results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
+.card{text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-width:0}
+.card[aria-pressed="true"]{border-color:var(--route);box-shadow:inset 0 0 0 1px var(--route)}
+.card .v{font:600 12px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.card .km{font:700 26px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.card .km small{font-size:15px;font-weight:600;margin-left:2px}
+.card .meta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;line-height:1.35}
+.card .syms{display:flex;gap:3px;flex-wrap:wrap;margin-top:2px}
+.osmc{flex:0 0 auto;display:block}
+
+.detail{margin-top:14px;display:flex;flex-direction:column;gap:12px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;border-block:1px solid var(--line);padding-block:10px}
+.stat b{display:block;font:700 20px/1.05 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.profile{width:100%;height:auto;display:block}
+.profile .area{fill:var(--forest);opacity:.18}
+.profile .ln{fill:none;stroke:var(--forest);stroke-width:1.6}
+.profile text{fill:var(--muted);font:500 10px var(--f-display)}
+.profile .grid{stroke:var(--line);stroke-width:1}
+.segs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.seg{display:grid;grid-template-columns:52px 24px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:6px}
+.seg:hover{background:var(--surface-2)}
+.seg .at{font:600 13px/1 var(--f-display);color:var(--muted);font-variant-numeric:tabular-nums}
+.seg .nm{min-width:0}
+.seg .nm b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg .nm span{font-size:12px;color:var(--muted)}
+.seg .len{font:600 15px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.seg.zuweg .nm b{font-weight:500;color:var(--muted)}
+.zw{width:22px;height:22px;border:2px dashed var(--muted);border-radius:4px}
+.h3{font:600 13px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions .btn{flex:1 1 auto;justify-content:center}
+.note{font-size:12px;color:var(--muted)}
+.credits{margin-top:18px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);line-height:1.5}
+.credits a{color:inherit}
+
+/* Navigation */
+.navbar{position:fixed;z-index:900;top:0;left:0;right:0;
+  padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:10px;
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
+  background:var(--forest);color:var(--on-forest);display:flex;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.navbar .nb{flex:1;min-width:0}
+.navbar .big{font:700 22px/1.05 var(--f-display);font-variant-numeric:tabular-nums}
+.navbar .sub{font-size:13px;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.navbar .off{color:var(--sign);font-weight:600}
+.navbar button{border:1px solid currentColor;background:transparent;color:inherit;border-radius:8px;padding:8px 10px;font:600 14px/1 var(--f-display);text-transform:uppercase;letter-spacing:.05em;cursor:pointer}
+@media (min-width:900px){.navbar{left:400px}}
+
+/* Kartenmarker */
+.mk-start{width:30px;height:30px;border-radius:50%;background:var(--forest);color:var(--on-forest);border:3px solid #fff;display:grid;place-items:center;font:700 15px/1 var(--f-display);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.mk-gps{width:18px;height:18px;border-radius:50%;background:#2f7bf6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,123,246,.25)}
+@media (prefers-reduced-motion:no-preference){.mk-gps{animation:pulse 2s infinite}}
+@keyframes pulse{50%{box-shadow:0 0 0 11px rgba(47,123,246,.08)}}
+.leaflet-container{font-family:var(--f-body)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--surface);color:var(--ink)}
+.leaflet-popup-content{margin:12px 14px;min-width:220px}
+.pop h4{margin:0 0 6px;font:600 12px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.pop .r{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;padding-block:7px;border-top:1px solid var(--line)}
+.pop .r:first-of-type{border-top:0}
+.pop b{display:block;font-weight:600;line-height:1.25}
+.pop .m{font-size:12px;color:var(--muted)}
+.pop .l{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-top:3px}
+.pop a{color:var(--route)}
+.pop button{margin-top:4px;border:1px solid var(--line);background:var(--surface-2);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
+.leaflet-control-layers{background:var(--surface);color:var(--ink)}
+.leaflet-bar a{background:var(--surface);color:var(--ink);border-bottom-color:var(--line)}
+.picking #map{cursor:crosshair}
+.hint{position:absolute;z-index:600;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:999px;font-size:13px;font-weight:500;pointer-events:none}
+@media (min-width:900px){.hint{left:calc(50% + 200px)}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div id="map" aria-label="Karte"></div>
+  <section class="sheet" id="sheet" aria-label="Rundweg planen">
+    <button class="grip" id="grip" aria-label="Bedienbereich vergrößern oder verkleinern" aria-expanded="false"></button>
+    <header class="brand">
+      <div class="blaze" aria-hidden="true"><i></i></div>
+      <div><h1>Wander-Routenplaner</h1><p>Rundkurse und Strecken auf markierten Wanderwegen</p></div>
+    </header>
+
+    <div class="modes" role="group" aria-label="Art der Tour">
+      <button type="button" id="modeLoop" aria-pressed="true">Rundkurs</button>
+      <button type="button" id="modeAB" aria-pressed="false">Start–Ziel</button>
+    </div>
+
+    <div class="block">
+      <div class="lbl">Startpunkt</div>
+      <div class="row">
+        <button class="btn" id="btnGps" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Mein Standort</button>
+        <button class="btn" id="btnPick" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>Auf Karte wählen</button>
+      </div>
+      <div class="chips" id="regions" role="group" aria-label="Region"></div>
+      <div class="startinfo" id="startInfo"></div>
+    </div>
+
+    <div class="block" id="endBlock" hidden>
+      <div class="lbl">Ziel</div>
+      <div class="row">
+        <button class="btn" id="btnPickEnd" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>Auf Karte wählen</button>
+        <button class="btn" id="btnSwap" type="button" title="Start und Ziel tauschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg>Tauschen</button>
+      </div>
+      <div class="chips" id="regionsEnd" role="group" aria-label="Zielregion"></div>
+      <div class="startinfo" id="endInfo">Noch kein Ziel gewählt.</div>
+    </div>
+
+    <div class="block" id="lenBlock">
+      <label class="lbl" for="len">Länge <output id="lenOut" for="len">12 km</output></label>
+      <input type="range" id="len" min="4" max="200" step="1" value="12">
+      <div class="scale" aria-hidden="true"><span>4</span><span>50</span><span>100</span><span>150</span><span>200 km</span></div>
+      <div class="note" id="lenNote" hidden>Ab 30 km kombiniert die App nur Fern- und Regionalwege (z.&nbsp;B. Rheinsteig, Eifelsteig, Hauptwanderwege der Wandervereine). So bleiben auch Touren bis 200 km übersichtlich und schnell berechnet.</div>
+    </div>
+
+    <button class="primary" id="btnRun" type="button">Rundwege finden</button>
+    <div class="status" id="status" aria-live="polite"><div class="bar"><i id="prog"></i></div><span id="statusText">Startpunkt wählen, Länge einstellen, dann Rundwege berechnen.</span></div>
+
+    <div class="results" id="results" hidden></div>
+    <div class="detail" id="detail" hidden></div>
+
+    <details class="block offline" id="offline">
+      <summary class="lbl">Wegenetz auf dem Gerät</summary>
+      <p class="note" id="offInfo">Wird geprüft …</p>
+      <div class="row">
+        <button class="btn" id="btnPreload" type="button">Ganze Region speichern</button>
+        <button class="btn" id="btnClear" type="button">Speicher leeren</button>
+      </div>
+    </details>
+
+    <footer class="credits">
+      Wegedaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL) ·
+      Markierungsebene: <a href="https://hiking.waymarkedtrails.org" target="_blank" rel="noopener">Waymarked Trails</a> ·
+      Höhen: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (Copernicus DEM) ·
+      Gehzeit nach DIN 33466 · Prototyp, ohne Gewähr – vor Ort gilt die Beschilderung.
+    </footer>
+  </section>
+</div>
+<div class="navbar" id="navbar" hidden>
+  <div class="nb"><div class="big" id="navBig">–</div><div class="sub" id="navSub">GPS wird gesucht …</div></div>
+  <button type="button" id="navCenter">Folgen</button>
+  <button type="button" id="navStop">Ende</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="core.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
