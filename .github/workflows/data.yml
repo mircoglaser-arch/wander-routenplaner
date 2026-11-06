@@ -1,0 +1,54 @@
+name: Wegenetz aufbereiten
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 2 * *'   # monatlich am 2., 03:17 UTC
+  push:
+    branches: [main]
+    paths: ['scripts/**', '.github/workflows/data.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Werkzeuge installieren
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          pip install osmium
+
+      - name: OSM-Daten laden und auf Wanderrouten filtern
+        run: |
+          mkdir -p work && cd work
+          for r in nordrhein-westfalen rheinland-pfalz; do
+            curl -fsSL --retry 3 -o "$r.pbf" "https://download.geofabrik.de/europe/germany/$r-latest.osm.pbf"
+            osmium tags-filter "$r.pbf" r/route=hiking,foot -o "$r-routes.pbf"
+            rm "$r.pbf"
+          done
+          osmium merge nordrhein-westfalen-routes.pbf rheinland-pfalz-routes.pbf -o routes.pbf
+          ls -lh
+
+      - name: Kacheln erzeugen
+        run: python3 scripts/build_tiles.py work/routes.pbf out
+
+      - name: Auf Branch "data" veröffentlichen
+        run: |
+          cd out
+          echo "Wegedaten © OpenStreetMap-Mitwirkende, ODbL 1.0 – https://www.openstreetmap.org/copyright" > LICENSE-DATA.txt
+          git init -q -b data
+          git config user.name "wander-routenplaner-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Wegenetz $(date -u +%F)"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
