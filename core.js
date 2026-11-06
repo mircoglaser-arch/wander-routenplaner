@@ -380,7 +380,7 @@
       const ev = evalLoop(G, steps);
       for (const s of steps) pen[s.e] *= 1.7;
       if (!out.length) best = ev.total;
-      if (ev.total > best * 1.5) continue;
+      if (ev.total > best * (opts.maxRatio || 1.5)) continue;
       const cand = Object.assign({ steps }, ev);
       if (out.some(o => similarity(G, o, cand) > 0.55)) continue;
       out.push(cand);

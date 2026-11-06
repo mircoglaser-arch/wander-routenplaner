@@ -480,11 +480,13 @@
     const sb = snapOrThrow(G, S.end, d * 0.5, 'Ziel', long);
     if (G.comp[sa.node] !== G.comp[sb.node]) throw new Error('noroute');
     status(`${G.rels.size} markierte Wege geladen. Suche Route …`, null, 0.4);
-    const routes = await WK.findRoutes(G, sa.node, sb.node, { max: 10, tick: p => { if (S.cancel) throw new Error('cancel'); status('Suche Varianten …', null, 0.4 + p * 0.5); return sleep(0); } });
+    const routes = await WK.findRoutes(G, sa.node, sb.node, { max: 10, maxRatio: long ? 1.25 : 1.4, tick: p => { if (S.cancel) throw new Error('cancel'); status('Suche Varianten …', null, 0.4 + p * 0.5); return sleep(0); } });
     if (!routes.length) throw new Error('noroute');
     S.loops = routes.map((r, i) => prepRoute(G, r, sa, sb, S.start, S.end, i));
     await showResults();
-    status(`${S.loops.length} Variante${S.loops.length > 1 ? 'n' : ''} von ${S.startLabel} nach ${S.endLabel} · Luftlinie ${km(d)} km${long ? ' · nur Fern- und Regionalwege' : ''}.`, null, 1);
+    S.crow = d;
+    const best = Math.min(...S.loops.map(x => x.total));
+    status(`${S.loops.length} Variante${S.loops.length > 1 ? 'n' : ''} von ${S.startLabel} nach ${S.endLabel}. Luftlinie ${km(d)} km, kürzeste Strecke über markierte Wanderwege ${km(best)} km (${nf1.format(best / d)}-fach). Markierte Wege verlaufen kurviger als die Luftlinie und verbinden Regionen oft nur an wenigen Stellen.${long ? ' Ab 60 km nutzt die App Fern- und Regionalwege.' : ''}`, null, 1);
   }
 
   // Kurze Touren: vorbereitete Kacheln mit allen Wegen, sonst direkte Overpass-Abfrage
@@ -574,7 +576,7 @@
     return `${miniMap(lp)}
       <div class="cbody">
         <div class="ctop"><span class="v">${VAR[lp.idx]}</span><span class="km">${km(lp.total)}<small> km</small></span></div>
-        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}${st.hasForestData ? ` · <span class="wald">${pct(st.forestAny, st.total)} % im Wald</span>` : ''}</div>
+        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}${st.hasForestData ? ` · <span class="wald">${pct(st.forestAny, st.total)} % im Wald</span>` : ''}${S.mode === 'ab' && S.loops.length ? (() => { const b = Math.min(...S.loops.map(x => x.total)); const extra = Math.round(100 * (lp.total / b - 1)); return extra > 0 ? ` · <b>+${extra} %</b> zur kürzesten` : ' · <b>kürzeste</b>'; })() : ''}</div>
         ${mixBar(sh)}
         <ul class="surf">${sh.map(x => `<li${x.p ? '' : ' class="zero"'}><i style="background:var(${x.color})"></i>${x.label}<b>${x.p} %</b></li>`).join('')}</ul>
       </div>`;
@@ -751,7 +753,7 @@
     if (lp.ele && lp.ele.length && (!fine || lp.eleFine)) return;
     const km_ = lp.total / 1000;
     const z = km_ <= 30 ? 13 : km_ <= 100 ? 12 : 11;
-    const N = Math.max(100, Math.min(fine ? 1500 : 400, Math.round(lp.total / (fine ? 40 : 120)))); const pts = [];
+    const N = Math.max(100, Math.min(2000, Math.round(lp.total / 40))); const pts = [];   // gleiche Auflösung für alle Varianten, damit Höhenmeter vergleichbar sind
     for (let k = 0; k < N; k++) pts.push(pointAt(lp, lp.total * k / (N - 1)));
     try {
       let e;
