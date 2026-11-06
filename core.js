@@ -57,7 +57,7 @@
         c[2 * i] = +el.geometry[i].lat.toFixed(6); c[2 * i + 1] = +el.geometry[i].lon.toFixed(6);
         if (i === 0 || i === n.length - 1 || use.get(n[i]) > 1) j.push(i, n[i]);
       }
-      ways.push({ id: el.id, routes: wayRels.get(el.id), c, j });
+      ways.push({ id: el.id, routes: wayRels.get(el.id), c, j, s: 0, f: -1 });
     }
     return { rels, ways };
   }
@@ -69,7 +69,8 @@
       for (const r of p.rels) if (!rels.has(r.id)) rels.set(r.id, r.tags);
       for (const w of p.ways) {
         const old = ways.get(w.id);
-        if (!old) { ways.set(w.id, { id: w.id, routes: w.routes.slice(), c: w.c, j: w.j }); continue; }
+        if (!old) { ways.set(w.id, { id: w.id, routes: w.routes.slice(), c: w.c, j: w.j, s: w.s || 0, f: w.f == null ? -1 : w.f }); continue; }
+        if (!old.s && w.s) old.s = w.s; if (old.f < 0 && w.f >= 0) old.f = w.f;
         for (const r of w.routes) if (!old.routes.includes(r)) old.routes.push(r);
         const m = new Map();
         for (let k = 0; k < old.j.length; k += 2) m.set(old.j[k], old.j[k + 1]);
@@ -94,6 +95,7 @@
       let net = 1;
       for (const r of routes) net = Math.min(net, NET_FACTOR[rels.get(r).tags.network] || 1);
       const wi = wayList.length; wayList.push({ id: w.id, routes, c: w.c });
+      const sc = w.s || 0, fs = w.f == null ? -1 : w.f;
       const c = w.c;
       for (let k = 2; k < w.j.length; k += 2) {
         const i0 = w.j[k - 2], i1 = w.j[k];
@@ -103,7 +105,7 @@
         const a = getNode(w.j[k - 1], [c[2 * i0], c[2 * i0 + 1]]);
         const b = getNode(w.j[k + 1], [c[2 * i1], c[2 * i1 + 1]]);
         if (a === b && len <= 20) continue;
-        edges.push({ a, b, len, w: len * net, routes, wi, i0, i1 });
+        edges.push({ a, b, len, base: len * net, w: len * net, routes, wi, i0, i1, s: sc, f: fs });
       }
     }
     const n = nodeCoord.length;
@@ -121,6 +123,43 @@
     }
     for (const e of edges) compLen[comp[e.a]] += e.len;
     return { rels, edges, adj, nodeCoord, n, comp, compLen, wayList };
+  }
+
+  // Gewichtung: Naturwege und Wald bevorzugen, Asphalt meiden
+  function setWeights(G, nature) {
+    for (const e of G.edges) {
+      let m = 1;
+      if (nature) {
+        m = e.s === 2 ? 1.35 : e.s === 1 ? 0.9 : 1.05;
+        if (e.f >= 0) m *= 1 - 0.15 * e.f / 100;
+      }
+      e.w = e.base * m;
+    }
+    G.nature = !!nature;
+  }
+
+  const edgeClass = e => (e.f >= 50 ? 'forest' : e.s === 1 ? 'unpaved' : e.s === 2 ? 'paved' : 'unknown');
+  function routeStats(G, steps) {
+    const st = { forest: 0, unpaved: 0, paved: 0, unknown: 0, total: 0, forestAny: 0, hasForestData: false };
+    for (const x of steps) {
+      const e = G.edges[x.e];
+      st.total += e.len;
+      if (e.f >= 0) { st.forestAny += e.len * e.f / 100; st.hasForestData = true; }
+      if (e.s === 1) st.unpaved += e.len; else if (e.s === 2) st.paved += e.len; else st.unknown += e.len;
+    }
+    return st;
+  }
+  // Abschnitte gleicher Art (Wald, unbefestigt, befestigt, unbekannt) für die Darstellung
+  function classRuns(G, steps) {
+    const runs = [];
+    for (const x of steps) {
+      const e = G.edges[x.e]; const cls = edgeClass(e);
+      let c = edgeCoords(G, e); if (!x.fwd) c.reverse();
+      const last = runs[runs.length - 1];
+      if (last && last.cls === cls) { for (let i = 1; i < c.length; i++) last.coords.push(c[i]); }
+      else runs.push({ cls, coords: c });
+    }
+    return runs;
   }
 
   function edgeCoords(G, e) {
@@ -286,30 +325,37 @@
 
   async function findLoops(G, S, L, opts = {}) {
     const tick = opts.tick || (() => Promise.resolve());
-    const bearings = opts.bearings || 10;
+    const bearings = opts.bearings || 16;
     const all = [];
     let f = 0.3;
-    for (let pass = 0; pass < 2; pass++) {
+    const fs = [];
+    for (let pass = 0; pass < 3; pass++) {
+      fs.push(f);
       let done = 0;
       for (const c of loopCandidates(G, S, L, f, bearings)) {
-        if (!c) { await tick(pass, done++ / (bearings * 2)); continue; }
+        if (!c) { await tick(pass, done++ / (bearings * 2) / 3 + pass / 3); continue; }
         const ev = evalLoop(G, c.steps);
         if (ev.total < 500) continue;
         const dev = Math.abs(ev.total - L) / L;
         const ovl = ev.overlap / ev.total;
-        all.push(Object.assign({ steps: c.steps, score: dev * 3 + ovl * 2.2 }, ev));
+        let nat = 0;
+        if (G.nature) { const st = routeStats(G, c.steps); nat = 0.9 * st.paved / st.total - 0.35 * st.forestAny / st.total; }
+        all.push(Object.assign({ steps: c.steps, score: dev * 3 + ovl * 2.2 + nat }, ev));
       }
       if (!all.length) { f *= 1.4; continue; }
       const top = all.slice().sort((x, y) => x.score - y.score).slice(0, 6).map(x => x.total).sort((x, y) => x - y);
       const med = top[top.length >> 1];
       const good = all.filter(x => Math.abs(x.total - L) / L < 0.15).length;
-      if (good >= 4 && pass === 0) break;
+      if (good >= 24) break;
       f = Math.max(0.12, Math.min(0.5, f * L / med));
+      if (pass === 1) f = Math.max(0.12, Math.min(0.5, f * (fs[1] > fs[0] ? 0.82 : 1.18)));   // dritte Runde: andere Form
     }
     all.sort((x, y) => x.score - y.score);
     const picked = [];
     for (const c of all) {
-      if (picked.some(p => similarity(G, p, c) > 0.5)) continue;
+      if (Math.abs(c.total - L) / L > 0.3 && picked.length) continue;
+      if (c.overlap / c.total > 0.3 && picked.length) continue;
+      if (picked.some(p => similarity(G, p, c) > 0.45)) continue;
       picked.push(c);
       if (picked.length >= (opts.max || 3)) break;
     }
@@ -322,17 +368,17 @@
     const max = opts.max || 3;
     const pen = new Float64Array(G.edges.length).fill(1);
     const out = []; let best = Infinity;
-    for (let k = 0; k < max + 3 && out.length < max; k++) {
-      await tick(k / (max + 3));
+    for (let k = 0; k < max * 2 + 2 && out.length < max; k++) {
+      await tick(k / (max * 2 + 2));
       const res = dijkstra(G, A, ei => G.edges[ei].w * pen[ei], Infinity, B);
       const p = pathTo(G, res, B); if (!p) break;
       const steps = pruneSpurs(p);
       const ev = evalLoop(G, steps);
       for (const s of steps) pen[s.e] *= 1.7;
       if (!out.length) best = ev.total;
-      if (ev.total > best * 1.45) continue;
+      if (ev.total > best * 1.5) continue;
       const cand = Object.assign({ steps }, ev);
-      if (out.some(o => similarity(G, o, cand) > 0.6)) continue;
+      if (out.some(o => similarity(G, o, cand) > 0.55)) continue;
       out.push(cand);
     }
     return out;
@@ -453,7 +499,7 @@
     return { title: name || ref || 'Markierter Wanderweg', ref: name ? ref : '' };
   }
 
-  const WK = { hav, bearing, buildGraph, compactFromOverpass, mergeCompact, edgeCoords, wayCoords, findRoutes, dijkstra, pathTo, snap, findLoops, evalLoop, stepsCoords, segments, walkTime, osmcSVG, routeLabel, NET_LABEL, NET_RANK };
+  const WK = { hav, bearing, buildGraph, setWeights, routeStats, classRuns, compactFromOverpass, mergeCompact, edgeCoords, wayCoords, findRoutes, dijkstra, pathTo, snap, findLoops, evalLoop, stepsCoords, segments, walkTime, osmcSVG, routeLabel, NET_LABEL, NET_RANK };
   if (typeof module !== 'undefined' && module.exports) module.exports = WK;
   root.WK = WK;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

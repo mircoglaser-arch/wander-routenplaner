@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Wander-Routenplaner</title>
 <meta name="description" content="Wander-Routenplaner: Rundkurse und Start–Ziel-Touren bis 200 km aus offiziell markierten Wanderwegen – Köln, Bergisches Land, Eifel, Siebengebirge, Sauerland, Mosel und Rhein.">
-<meta name="theme-color" content="#1d5a3a">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%221%22 y=%221%22 width=%2230%22 height=%2230%22 rx=%225%22 fill=%22%23fff%22 stroke=%22%231d5a3a%22 stroke-width=%222%22/%3E%3Crect x=%224%22 y=%2212%22 width=%2224%22 height=%228%22 fill=%22%23cf2f25%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#1d4f91">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%221%22 y=%221%22 width=%2230%22 height=%2230%22 rx=%225%22 fill=%22%23fff%22 stroke=%22%231d4f91%22 stroke-width=%222%22/%3E%3Crect x=%224%22 y=%2212%22 width=%2224%22 height=%228%22 fill=%22%231d4f91%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
@@ -14,21 +14,21 @@
 <style>
 /* Layout: Karte füllt den Bildschirm, Bedienung als Bogen unten (Handy) bzw. Spalte links (Desktop) */
 :root{
-  --bg:#eef2ee; --surface:#ffffff; --surface-2:#f5f8f5; --ink:#17231b; --muted:#5a6a60; --line:#d3dcd5;
-  --forest:#1d5a3a; --on-forest:#ffffff; --route:#2747c9; --blaze:#cf2f25; --sign:#f0c419;
-  --warn:#b4541a; --ok:#2e7d4f;
+  --bg:#edf2f8; --surface:#ffffff; --surface-2:#f3f7fc; --ink:#13202f; --muted:#56687e; --line:#d2dce8;
+  --forest:#1d4f91; --on-forest:#ffffff; --route:#d1006f; --blaze:#cf2f25; --sign:#f0c419;
+  --warn:#b4541a; --ok:#2e7d4f; --c-forest:#1f8a3b; --c-unpaved:#b06a2c; --c-paved:#6d7177; --c-unknown:#d1006f;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
   --r:10px;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0e1511; --surface:#162019; --surface-2:#1c2820; --ink:#e6eee8; --muted:#97a89d; --line:#2a382f;
-  --forest:#62c08a; --on-forest:#07130c; --route:#8aa2ff; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a;
+  --bg:#0c1420; --surface:#132031; --surface-2:#1a2a3e; --ink:#e4ecf6; --muted:#93a6be; --line:#27394f;
+  --forest:#6ea8ff; --on-forest:#07111f; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-unpaved:#e0985a; --c-paved:#a3a8ae; --c-unknown:#ff5aa8;
   color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0e1511; --surface:#162019; --surface-2:#1c2820; --ink:#e6eee8; --muted:#97a89d; --line:#2a382f;
-  --forest:#62c08a; --on-forest:#07130c; --route:#8aa2ff; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a;
+  --bg:#0c1420; --surface:#132031; --surface-2:#1a2a3e; --ink:#e4ecf6; --muted:#93a6be; --line:#27394f;
+  --forest:#6ea8ff; --on-forest:#07111f; --route:#ff5aa8; --blaze:#ff6a5c; --sign:#f0c419; --warn:#f0a066; --ok:#6fd39a; --c-forest:#4cc46e; --c-unpaved:#e0985a; --c-paved:#a3a8ae; --c-unknown:#ff5aa8;
   color-scheme:dark}
 
 *{box-sizing:border-box}
@@ -45,9 +45,10 @@ button{font:inherit;color:inherit}
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   transition:max-height .25s ease;-webkit-overflow-scrolling:touch}
 .sheet.expanded{max-height:88%}
+@media (max-width:899px){.sheet{max-height:58%}.btn{padding:10px 12px}.chip{padding:8px 12px}.seg{grid-template-columns:46px 22px minmax(0,1fr) auto}}
 .grip{display:block;margin:2px auto 8px;width:56px;height:20px;border:0;background:none;cursor:pointer;position:relative}
 .grip::before{content:"";position:absolute;left:12px;right:12px;top:8px;height:4px;border-radius:2px;background:var(--line)}
-.grip:focus-visible{outline:2px solid var(--route);border-radius:6px}
+.grip:focus-visible{outline:2px solid var(--forest);border-radius:6px}
 
 @media (min-width:900px){
   .app{flex-direction:row-reverse}
@@ -59,7 +60,7 @@ button{font:inherit;color:inherit}
 .brand h1{font:700 26px/1 var(--f-display);letter-spacing:.01em;margin:0}
 .brand p{margin:2px 0 0;color:var(--muted);font-size:13px}
 .blaze{flex:0 0 auto;width:34px;height:34px;border-radius:4px;background:#fff;border:1px solid var(--line);display:grid;place-items:center}
-.blaze i{display:block;width:26px;height:9px;background:var(--blaze)}
+.blaze i{display:block;width:26px;height:9px;background:var(--forest)}
 
 .block{display:flex;flex-direction:column;gap:8px;padding-block:12px;border-top:1px solid var(--line)}
 .lbl{font:600 13px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;justify-content:space-between;align-items:baseline}
@@ -69,21 +70,31 @@ button{font:inherit;color:inherit}
 .btn:hover{border-color:var(--muted)}
 .btn[aria-pressed="true"]{background:var(--forest);color:var(--on-forest);border-color:var(--forest)}
 .btn svg{width:16px;height:16px}
-.btn:focus-visible,.chip:focus-visible,.primary:focus-visible,.card:focus-visible,.seg:focus-visible{outline:2px solid var(--route);outline-offset:2px}
+.btn:focus-visible,.chip:focus-visible,.primary:focus-visible,.card:focus-visible,.seg:focus-visible{outline:2px solid var(--forest);outline-offset:2px}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;cursor:pointer;font:600 14px/1.1 var(--f-display);letter-spacing:.02em}
-.chip[aria-pressed="true"]{background:var(--sign);border-color:var(--sign);color:#1b1b14}
+.chip[aria-pressed="true"]{background:var(--forest);border-color:var(--forest);color:var(--on-forest)}
 .modes{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:12px}
 .modes button{border:0;background:var(--surface-2);padding:10px;font:600 16px/1 var(--f-display);letter-spacing:.03em;cursor:pointer;color:var(--muted)}
 .modes button+button{border-left:1px solid var(--line)}
 .modes button[aria-pressed="true"]{background:var(--forest);color:var(--on-forest)}
-.modes button:focus-visible{outline:2px solid var(--route);outline-offset:-2px}
+.modes button:focus-visible{outline:2px solid var(--forest);outline-offset:-2px}
 .offline summary{cursor:pointer;list-style:none}
 .offline summary::-webkit-details-marker{display:none}
 .offline summary::after{content:"+";font:700 18px/1 var(--f-display);color:var(--muted)}
 .offline[open] summary::after{content:"–"}
 .mk-end{width:30px;height:30px;border-radius:50%;background:var(--blaze);color:#fff;border:3px solid #fff;display:grid;place-items:center;font:700 15px/1 var(--f-display);box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.search{position:relative}
+.search input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--ink);font:500 16px/1.2 var(--f-body)}
+.search input::placeholder{color:var(--muted)}
+.search input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:transparent}
+.sugg{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:20;margin:0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,.18);max-height:300px;overflow-y:auto}
+.sugg li{padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;flex-direction:column;gap:1px}
+.sugg li b{font-weight:600}
+.sugg li span{font-size:12px;color:var(--muted)}
+.sugg li[aria-selected="true"],.sugg li:hover{background:var(--surface-2)}
+.sugg li.none{cursor:default;color:var(--muted)}
 .startinfo{font-size:13px;color:var(--muted);min-height:1.2em}
 .startinfo b{color:var(--ink);font-weight:600}
 
@@ -98,16 +109,40 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
 .status .bar i{display:block;height:100%;width:0;background:var(--forest);transition:width .2s}
 .status.err{color:var(--warn)}
 
-.results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
-.card{text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-width:0}
-.card[aria-pressed="true"]{border-color:var(--route);box-shadow:inset 0 0 0 1px var(--route)}
-.card .v{font:600 12px/1 var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.card .km{font:700 26px/1 var(--f-display);font-variant-numeric:tabular-nums}
-.card .km small{font-size:15px;font-weight:600;margin-left:2px}
+.results{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.rhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.rhead b{font:700 18px/1 var(--f-display)}
+.sortl{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.sortl select{font:500 14px var(--f-body);padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:14px;height:4px;border-radius:2px;display:inline-block}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media (min-width:560px) and (max-width:899px){.cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.card{text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:0;cursor:pointer;display:flex;flex-direction:column;min-width:0;overflow:hidden;color:inherit;font:inherit}
+.card[aria-pressed="true"]{border-color:var(--forest);box-shadow:inset 0 0 0 2px var(--forest)}
+.card .mini{display:block;width:100%;height:auto;aspect-ratio:300/170;max-width:100%}
+.card .cbody{padding:8px 9px 9px;display:flex;flex-direction:column;gap:5px}
+.card .ctop{display:flex;align-items:baseline;gap:8px}
+.card .v{font:700 13px/1 var(--f-display);background:var(--ink);color:var(--bg);border-radius:4px;padding:3px 6px}
+.card .km{font:700 22px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.card .km small{font-size:14px;font-weight:600}
 .card .meta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;line-height:1.35}
-.card .syms{display:flex;gap:3px;flex-wrap:wrap;margin-top:2px}
+.card .tags{display:flex;flex-wrap:wrap;gap:3px}
+.tg{font-weight:600;font-size:11px;padding:2px 5px;border-radius:4px;background:var(--surface);border:1px solid var(--line);color:var(--ink);white-space:nowrap}
+.tg.f{border-color:var(--c-forest)}
+.tg.u{border-color:var(--c-unpaved)}
+.mix{display:flex;height:5px;border-radius:3px;overflow:hidden;background:var(--line)}
+.mix i{display:block;height:100%}
 .osmc{flex:0 0 auto;display:block}
-
+.toggle{display:flex;gap:10px;align-items:flex-start;padding-block:10px;border-top:1px solid var(--line);cursor:pointer}
+.toggle input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--forest);flex:0 0 auto}
+.toggle span{display:flex;flex-direction:column;font-size:12px;color:var(--muted)}
+.toggle b{font-size:14px;color:var(--ink);font-weight:600}
+.shares{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.shares b{display:block;font:700 18px/1.05 var(--f-display);font-variant-numeric:tabular-nums}
+.shares span{font-size:11px;color:var(--muted)}
+@media (max-width:420px){.shares{grid-template-columns:repeat(2,minmax(0,1fr))}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .detail{margin-top:14px;display:flex;flex-direction:column;gap:12px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;border-block:1px solid var(--line);padding-block:10px}
 .stat b{display:block;font:700 20px/1.05 var(--f-display);font-variant-numeric:tabular-nums}
@@ -186,6 +221,10 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
 
     <div class="block">
       <div class="lbl">Startpunkt</div>
+      <div class="search">
+        <input id="qStart" type="search" placeholder="Ort oder Adresse eingeben" autocomplete="off" spellcheck="false" aria-label="Startpunkt suchen" aria-controls="sgStart" aria-autocomplete="list">
+        <ul class="sugg" id="sgStart" role="listbox" hidden></ul>
+      </div>
       <div class="row">
         <button class="btn" id="btnGps" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Mein Standort</button>
         <button class="btn" id="btnPick" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>Auf Karte wählen</button>
@@ -196,6 +235,10 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
 
     <div class="block" id="endBlock" hidden>
       <div class="lbl">Ziel</div>
+      <div class="search">
+        <input id="qEnd" type="search" placeholder="Zielort oder Adresse eingeben" autocomplete="off" spellcheck="false" aria-label="Ziel suchen" aria-controls="sgEnd" aria-autocomplete="list">
+        <ul class="sugg" id="sgEnd" role="listbox" hidden></ul>
+      </div>
       <div class="row">
         <button class="btn" id="btnPickEnd" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>Auf Karte wählen</button>
         <button class="btn" id="btnSwap" type="button" title="Start und Ziel tauschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg>Tauschen</button>
@@ -208,9 +251,10 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
       <label class="lbl" for="len">Länge <output id="lenOut" for="len">12 km</output></label>
       <input type="range" id="len" min="4" max="200" step="1" value="12">
       <div class="scale" aria-hidden="true"><span>4</span><span>50</span><span>100</span><span>150</span><span>200 km</span></div>
-      <div class="note" id="lenNote" hidden>Ab 30 km kombiniert die App nur Fern- und Regionalwege (z.&nbsp;B. Rheinsteig, Eifelsteig, Hauptwanderwege der Wandervereine). So bleiben auch Touren bis 200 km übersichtlich und schnell berechnet.</div>
+      <div class="note" id="lenNote" hidden>Ab 60 km kombiniert die App nur Fern- und Regionalwege (z.&nbsp;B. Rheinsteig, Eifelsteig, Hauptwanderwege der Wandervereine). So bleiben auch Touren bis 200 km übersichtlich und schnell berechnet.</div>
     </div>
 
+    <label class="toggle" for="nature"><input type="checkbox" id="nature" checked><span><b>Naturwege bevorzugen</b>Wald und unbefestigte Wege vor Asphalt</span></label>
     <button class="primary" id="btnRun" type="button">Rundwege finden</button>
     <div class="status" id="status" aria-live="polite"><div class="bar"><i id="prog"></i></div><span id="statusText">Startpunkt wählen, Länge einstellen, dann Rundwege berechnen.</span></div>
 

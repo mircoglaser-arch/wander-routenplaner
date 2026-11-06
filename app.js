@@ -28,11 +28,11 @@
     'https://overpass.kumi.systems/api/interpreter',
     'https://overpass-api.de/api/interpreter'
   ];
-  const LONG_KM = 30;
+  const LONG_KM = 60;
 
   const S = {
     start: null, startLabel: '', region: store.get('region', 'sieben'), L: store.get('len', 12),
-    mode: store.get('mode', 'loop'), end: null, endLabel: '', cancel: false, busy: false,
+    mode: store.get('mode', 'loop'), nature: store.get('nature', true), sort: 'best', end: null, endLabel: '', cancel: false, busy: false,
     G: null, loaded: null, snap: null, loops: [], sel: -1, picking: false,
     gpsLL: null, gpsAcc: null, watch: null, nav: null, wake: null
   };
@@ -90,10 +90,12 @@
     status(m === 'loop' ? 'Startpunkt wählen, Länge einstellen, dann Rundwege berechnen.' : 'Start und Ziel wählen, dann Route berechnen. Die App sucht den Weg über markierte Wanderwege und bietet bis zu drei Varianten an.');
   }
   function clearResults() {
-    S.loops = []; S.sel = -1; loopLayer.clearLayers(); if (hl) { map.removeLayer(hl); hl = null; }
+    S.loops = []; S.sel = -1; loopLayer.clearLayers(); wmt.setOpacity(0.85); if (hl) { map.removeLayer(hl); hl = null; }
     $('results').hidden = true; $('results').innerHTML = ''; $('detail').hidden = true; $('detail').innerHTML = '';
     if (S.nav) stopNav();
   }
+  const natEl = $('nature'); natEl.checked = S.nature;
+  natEl.onchange = () => { S.nature = natEl.checked; store.set('nature', S.nature); if (S.G) WK.setWeights(S.G, S.nature); if (S.loops.length) status('Einstellung geändert. „' + $('btnRun').textContent + '“ antippen, um neu zu berechnen.'); };
   $('modeLoop').onclick = () => setMode('loop');
   $('modeAB').onclick = () => setMode('ab');
   $('btnSwap').onclick = () => {
@@ -153,6 +155,9 @@
 
   function setStart(ll, label, src) {
     S.start = ll; S.startLabel = label;
+    if (S.picking) setPicking(false);
+    if (src !== 'search') $('qStart').value = '';
+    if (S.end) { const d = ` · Luftlinie ${km(WK.hav(ll, S.end))} km`; $('endInfo').innerHTML = `Ziel: <b>${esc(S.endLabel)}</b>${d}`; }
     if (!startMarker) startMarker = L.marker(ll, { icon: startIcon, draggable: true, zIndexOffset: 1000, title: 'Startpunkt (verschiebbar)' }).addTo(map)
       .on('dragend', ev => { const p = ev.target.getLatLng(); setStart([p.lat, p.lng], 'Verschobener Punkt', 'map'); });
     else startMarker.setLatLng(ll);
@@ -160,7 +165,67 @@
     $('startInfo').innerHTML = `Start: <b>${esc(label)}</b> · ${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}`;
   }
 
-  function setEnd(ll, label, regionId) {
+  /* ---------- Ortssuche (Photon / OpenStreetMap) ---------- */
+  function attachSearch(input, list, pick) {
+    let timer = null, ctl = null, items = [], sel = -1;
+    const close = () => { list.hidden = true; sel = -1; input.setAttribute('aria-expanded', 'false'); };
+    const render = (msg) => {
+      if (msg) { list.innerHTML = `<li class="none">${esc(msg)}</li>`; list.hidden = false; return; }
+      list.innerHTML = items.map((it, i) => `<li role="option" data-i="${i}" aria-selected="${i === sel}"><b>${esc(it.name)}</b><span>${esc(it.sub)}</span></li>`).join('');
+      list.hidden = !items.length; input.setAttribute('aria-expanded', String(!!items.length));
+    };
+    async function search(q, thenPick) {
+      if (ctl) ctl.abort(); ctl = new AbortController();
+      const c = map.getCenter();
+      try {
+        const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&bbox=5.5,49.0,10.5,52.6`, { signal: ctl.signal });
+        if (!r.ok) throw new Error(r.status);
+        const j = await r.json();
+        items = (j.features || []).map(f => {
+          const p = f.properties || {};
+          const name = p.name || [p.street, p.housenumber].filter(Boolean).join(' ') || p.city || q;
+          const sub = [p.name && p.street ? [p.street, p.housenumber].filter(Boolean).join(' ') : '', p.postcode, p.city && p.city !== name ? p.city : (p.district || ''), p.state].filter(Boolean).join(', ');
+          return { name, sub, ll: [f.geometry.coordinates[1], f.geometry.coordinates[0]] };
+        });
+        sel = items.length ? 0 : -1;
+        if (thenPick && items.length) return choose(0);
+        render(items.length ? null : 'Nichts gefunden. Anders schreiben oder Punkt auf der Karte wählen.');
+      } catch (e) { if (e.name !== 'AbortError') render('Suche gerade nicht erreichbar. Punkt auf der Karte wählen.'); }
+    }
+    function choose(i) {
+      const it = items[i]; if (!it) return;
+      input.value = it.name; close();
+      pick(it.ll, it.sub ? `${it.name}, ${it.sub.split(', ').slice(-2, -1)[0] || it.sub}` : it.name);
+    }
+    input.addEventListener('input', () => {
+      clearTimeout(timer); const q = input.value.trim();
+      if (q.length < 3) { close(); return; }
+      timer = setTimeout(() => search(q, false), 300);
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!items.length) return; e.preventDefault();
+        sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; render();
+      } else if (e.key === 'Enter') {
+        e.preventDefault(); const q = input.value.trim();
+        if (!list.hidden && sel >= 0) choose(sel); else if (q.length >= 2) { clearTimeout(timer); search(q, true); }
+      } else if (e.key === 'Escape') close();
+    });
+    list.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); choose(+li.dataset.i); } });
+    input.addEventListener('blur', () => setTimeout(close, 150));
+  }
+  attachSearch($('qStart'), $('sgStart'), (ll, label) => {
+    setStart(ll, label, 'search');
+    if (S.mode === 'ab' && S.end) fitStartEnd(); else map.setView(ll, 14);
+  });
+  attachSearch($('qEnd'), $('sgEnd'), (ll, label) => {
+    setEnd(ll, label, null, true);
+    if (S.start) fitStartEnd(); else map.setView(ll, 14);
+  });
+
+  function setEnd(ll, label, regionId, fromSearch) {
+    if (S.picking) setPicking(false);
+    if (!fromSearch) $('qEnd').value = '';
     S.end = ll; S.endLabel = label;
     if (!endMarker) endMarker = L.marker(ll, { icon: endIcon, draggable: true, zIndexOffset: 1000, title: 'Ziel (verschiebbar)' })
       .on('dragend', ev => { const p = ev.target.getLatLng(); setEnd([p.lat, p.lng], 'Verschobener Punkt', null); });
@@ -351,12 +416,14 @@
     const long = S.L > LONG_KM;
     const G = long
       ? await loadTiles(Tiles.tilesCircle(S.start, Math.min(80000, L_m * 0.36 + 3000)), 'long', Tiles.tilesCircle(S.start, 5000))
-      : await shortNet(Tiles.tilesCircle(S.start, Math.min(16000, Math.max(3500, L_m * 0.42 + 1500))), () => loadNetwork(S.start, Math.min(16000, Math.max(3500, L_m * 0.42 + 1500)), false));
+      : await shortNet(Tiles.tilesCircle(S.start, Math.min(27000, Math.max(3500, L_m * 0.42 + 1500))), () => loadNetwork(S.start, Math.min(16000, Math.max(3500, L_m * 0.42 + 1500)), false));
     if (!G.edges.length) throw new Error('none');
+    WK.setWeights(G, S.nature);
     const snap = snapOrThrow(G, S.start, L_m * 0.8, 'Start', long);
     status(`${G.rels.size} markierte Wege geladen. Suche Rundwege …`, null, 0.3);
     const loops = await WK.findLoops(G, snap.node, Math.max(1500, L_m - 2 * snap.dist), {
-      tick: (pass, p) => { if (S.cancel) throw new Error('cancel'); status(`Kombiniere Wege … ${pass ? 'Feinabstimmung' : 'erste Runde'}`, null, 0.3 + (pass * 0.35) + p * 0.35); return sleep(0); }
+      max: 10,
+      tick: (pass, p) => { if (S.cancel) throw new Error('cancel'); status(`Kombiniere Wege … Runde ${pass + 1} von 3`, null, 0.3 + p * 0.65); return sleep(0); }
     });
     if (!loops.length) throw new Error('noloop');
     S.loops = loops.map((lp, i) => prepRoute(G, lp, snap, snap, S.start, S.start, i));
@@ -369,17 +436,18 @@
 
   async function runAB() {
     const d = WK.hav(S.start, S.end);
-    const long = d > 12000;
+    const long = d > LONG_KM * 1000;
     const mid = [(S.start[0] + S.end[0]) / 2, (S.start[1] + S.end[1]) / 2];
     const G = long
       ? await loadTiles(Tiles.tilesCorridor(S.start, S.end, 12000 + d * 0.12), 'long', Tiles.tilesCircle(S.start, 5000).concat(Tiles.tilesCircle(S.end, 5000)))
-      : await shortNet(Tiles.tilesCorridor(S.start, S.end, 4000), () => loadNetwork(mid, Math.min(16000, d / 2 + 4000), false));
+      : await shortNet(Tiles.tilesCorridor(S.start, S.end, 4000 + d * 0.15), () => loadNetwork(mid, Math.min(16000, d / 2 + 4000), false));
     if (!G.edges.length) throw new Error('none');
+    WK.setWeights(G, S.nature);
     const sa = snapOrThrow(G, S.start, d * 0.5, 'Start', long);
     const sb = snapOrThrow(G, S.end, d * 0.5, 'Ziel', long);
     if (G.comp[sa.node] !== G.comp[sb.node]) throw new Error('noroute');
     status(`${G.rels.size} markierte Wege geladen. Suche Route …`, null, 0.4);
-    const routes = await WK.findRoutes(G, sa.node, sb.node, { tick: p => { if (S.cancel) throw new Error('cancel'); status('Suche Varianten …', null, 0.4 + p * 0.5); return sleep(0); } });
+    const routes = await WK.findRoutes(G, sa.node, sb.node, { max: 10, tick: p => { if (S.cancel) throw new Error('cancel'); status('Suche Varianten …', null, 0.4 + p * 0.5); return sleep(0); } });
     if (!routes.length) throw new Error('noroute');
     S.loops = routes.map((r, i) => prepRoute(G, r, sa, sb, S.start, S.end, i));
     await showResults();
@@ -414,35 +482,92 @@
     for (const s of segs) { rows.push({ rel: s.rel, len: s.len, coords: s.coords, at }); at += s.len; }
     if (zwB) rows.push({ zuweg: S.mode === 'loop' ? 'back' : 'end', len: sb.dist, coords: [G.nodeCoord[sb.node], B], at });
     const relSet = [...new Set(segs.map(s => s.rel))];
-    return { idx, steps: lp.steps, coords, cum, total: cum[cum.length - 1], overlap: lp.overlap, rows, relSet, ele: null, up: null, down: null };
+    const st = WK.routeStats(G, lp.steps);
+    const zwLen = (zwA ? sa.dist : 0) + (zwB ? sb.dist : 0);
+    st.unknown += zwLen; st.total += zwLen;
+    const runs = WK.classRuns(G, lp.steps);
+    if (zwA) runs.unshift({ cls: 'none', coords: [A, G.nodeCoord[sa.node]] });
+    if (zwB) runs.push({ cls: 'none', coords: [G.nodeCoord[sb.node], B] });
+    return { idx, steps: lp.steps, coords, cum, total: cum[cum.length - 1], overlap: lp.overlap, rows, relSet, st, runs, ele: null, up: null, down: null };
   }
 
-  const VAR = ['A', 'B', 'C'];
+  const VAR = 'ABCDEFGHIJ'.split('');
+  const CLS = { forest: '--c-forest', unpaved: '--c-unpaved', paved: '--c-paved', unknown: '--c-unknown', none: '--c-unknown' };
+  const pct = (x, t) => t > 0 ? Math.round(100 * x / t) : 0;
+
+  // Mini-Karte: OSM-Kacheln als SVG-Bilder plus Route nach Wegeart eingefärbt
+  function miniMap(lp) {
+    const W = 300, H = 170, pad = 14;
+    const lats = lp.coords.map(c => c[0]), lons = lp.coords.map(c => c[1]);
+    const n = Math.max(...lats), s_ = Math.min(...lats), e = Math.max(...lons), w = Math.min(...lons);
+    const wx = (lon, z) => (lon + 180) / 360 * 256 * 2 ** z;
+    const wy = (lat, z) => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * 2 ** z; };
+    let z = 15;
+    while (z > 4 && (wx(e, z) - wx(w, z) > W - 2 * pad || wy(s_, z) - wy(n, z) > H - 2 * pad)) z--;
+    const cx = (wx(e, z) + wx(w, z)) / 2, cy = (wy(s_, z) + wy(n, z)) / 2;
+    const ox = cx - W / 2, oy = cy - H / 2;
+    let imgs = '';
+    for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
+      for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + H) / 256); ty++)
+        imgs += `<image href="https://tile.openstreetmap.org/${z}/${tx}/${ty}.png" x="${(tx * 256 - ox).toFixed(1)}" y="${(ty * 256 - oy).toFixed(1)}" width="256" height="256"/>`;
+    const pt = c => (wx(c[1], z) - ox).toFixed(1) + ',' + (wy(c[0], z) - oy).toFixed(1);
+    const path = c => c.map(pt).join(' ');
+    const halo = `<polyline points="${path(lp.coords)}" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const lines = lp.runs.map(r => `<polyline points="${path(r.coords)}" fill="none" stroke="var(${CLS[r.cls]})" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"${r.cls === 'none' ? ' stroke-dasharray="4 4"' : ''}/>`).join('');
+    const [sx, sy] = pt(lp.coords[0]).split(','), [ex, ey] = pt(lp.coords[lp.coords.length - 1]).split(',');
+    const marks = `<circle cx="${sx}" cy="${sy}" r="5.5" fill="var(--forest)" stroke="#fff" stroke-width="2"/>` + (S.mode === 'ab' ? `<circle cx="${ex}" cy="${ey}" r="5.5" fill="var(--blaze)" stroke="#fff" stroke-width="2"/>` : '');
+    return `<svg class="mini" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="${W}" height="${H}" fill="var(--surface-2)"/><g class="tiles">${imgs}</g>${halo}${lines}${marks}</svg>`;
+  }
+  function mixBar(st) {
+    const t = st.total || 1, fo = Math.min(st.forestAny, st.unpaved + st.paved + st.unknown);
+    // Belag als Balken, Waldanteil getrennt als Zahl
+    return `<div class="mix" aria-hidden="true"><i style="width:${pct(st.unpaved, t)}%;background:var(--c-unpaved)"></i><i style="width:${pct(st.paved, t)}%;background:var(--c-paved)"></i><i style="width:${pct(st.unknown, t)}%;background:var(--line)"></i></div>`;
+  }
   function cardHTML(lp, i) {
-    const G = S.G;
-    const syms = lp.relSet.slice(0, 8).map(r => WK.osmcSVG(G.rels.get(r).tags, 18)).join('');
     const time = WK.walkTime(lp.total / 1000, lp.up || 0, lp.down || 0);
-    return `<div class="v">Variante ${VAR[i]}</div><div class="km">${km(lp.total)}<small>km</small></div>
-      <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}<br>${lp.relSet.length} Wege${lp.overlap > 50 ? ` · ${nf0.format(lp.overlap / lp.total * 100)} % doppelt` : ''}</div>
-      <div class="syms">${syms}</div>`;
+    const st = lp.st, t = st.total;
+    const forest = st.hasForestData ? `${pct(st.forestAny, t)} % Wald` : '';
+    return `${miniMap(lp)}
+      <div class="cbody">
+        <div class="ctop"><span class="v">${VAR[lp.idx]}</span><span class="km">${km(lp.total)}<small> km</small></span></div>
+        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}</div>
+        ${mixBar(st)}
+        <div class="meta tags">${forest ? `<b class="tg f">${forest}</b>` : ''}<b class="tg u">${pct(st.unpaved, t)} % unbefestigt</b><b class="tg p">${pct(st.paved, t)} % Asphalt</b></div>
+      </div>`;
+  }
+  function sortedIdx() {
+    const ix = S.loops.map((_, i) => i);
+    const nat = lp => (lp.st.forestAny + lp.st.unpaved - lp.st.paved) / lp.st.total;
+    if (S.sort === 'nature') ix.sort((a, b) => nat(S.loops[b]) - nat(S.loops[a]));
+    else if (S.sort === 'short') ix.sort((a, b) => S.loops[a].total - S.loops[b].total);
+    else if (S.sort === 'flat') ix.sort((a, b) => (S.loops[a].up ?? 1e9) - (S.loops[b].up ?? 1e9));
+    return ix;
   }
   function renderCards() {
     const el = $('results'); el.hidden = false;
-    el.innerHTML = S.loops.map((lp, i) => `<button class="card" type="button" data-i="${i}" aria-pressed="false">${cardHTML(lp, i)}</button>`).join('');
-    el.onclick = e => { const b = e.target.closest('.card'); if (b) select(+b.dataset.i, true); };
+    const n = S.loops.length;
+    el.innerHTML = `<div class="rhead"><b>${n} Variante${n > 1 ? 'n' : ''}</b>
+        <label class="sortl" for="sortSel">Sortieren
+        <select id="sortSel"><option value="best">Empfohlen</option><option value="nature">Meiste Natur</option><option value="short">Kürzeste</option><option value="flat">Wenigste Höhenmeter</option></select></label></div>
+      <div class="legend"><span><i style="background:var(--c-forest)"></i>Wald</span><span><i style="background:var(--c-unpaved)"></i>unbefestigt</span><span><i style="background:var(--c-paved)"></i>Asphalt/Pflaster</span><span><i style="background:var(--c-unknown)"></i>unbekannt</span></div>
+      <div class="cards" id="cards">${sortedIdx().map(i => `<button class="card" type="button" data-i="${i}" aria-pressed="${i === S.sel}">${cardHTML(S.loops[i], i)}</button>`).join('')}</div>`;
+    const sel = $('sortSel'); sel.value = S.sort;
+    sel.onchange = () => { S.sort = sel.value; renderCards(); };
+    $('cards').onclick = e => { const b = e.target.closest('.card'); if (b) { select(+b.dataset.i, true); if (window.innerWidth < 900) { $('sheet').classList.remove('expanded'); $('grip').setAttribute('aria-expanded', 'false'); } } };
   }
   const fmtTime = h => { const m = Math.round(h * 60 / 5) * 5; return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); };
 
   function drawLoops() {
     loopLayer.clearLayers();
+    wmt.setOpacity(0.45);
     if (hl) { map.removeLayer(hl); hl = null; }
     S.loops.forEach((lp, i) => {
       if (i === S.sel) return;
       L.polyline(lp.coords, { color: css('--route'), weight: 3, opacity: 0.45, dashArray: '6 7' }).on('click', () => select(i, false)).addTo(loopLayer);
     });
     const lp = S.loops[S.sel];
-    L.polyline(lp.coords, { color: '#ffffff', weight: 9, opacity: 0.9, interactive: false }).addTo(loopLayer);
-    L.polyline(lp.coords, { color: css('--route'), weight: 5, opacity: 1, interactive: false }).addTo(loopLayer);
+    L.polyline(lp.coords, { color: '#ffffff', weight: 10, opacity: 0.95, interactive: false }).addTo(loopLayer);
+    for (const r of lp.runs) L.polyline(r.coords, { color: css(CLS[r.cls]), weight: 6, opacity: 1, interactive: false, dashArray: r.cls === 'none' ? '6 6' : null }).addTo(loopLayer);
     // Richtungspfeile alle ~1,5 km
     const step = Math.max(800, lp.total / 10);
     for (let d = step / 2; d < lp.total; d += step) {
@@ -464,14 +589,14 @@
   async function select(i, fit) {
     if (S.nav) stopNav();
     S.sel = i;
-    for (const b of $('results').children) b.setAttribute('aria-pressed', +b.dataset.i === i);
+    for (const b of $('results').querySelectorAll('.card')) b.setAttribute('aria-pressed', +b.dataset.i === i);
     drawLoops();
     const lp = S.loops[i];
     if (fit) map.fitBounds(L.latLngBounds(lp.coords), { padding: [24, 24] });
     renderDetail(lp);
     if (!lp.ele) { await loadElevation(lp); if (S.sel === i) renderDetail(lp); refreshCard(i); }
   }
-  function refreshCard(i) { const b = $('results').querySelector(`[data-i="${i}"]`); if (b) b.innerHTML = cardHTML(S.loops[i], i); }
+  function refreshCard(i) { const b = $('results').querySelector(`.card[data-i="${i}"]`); if (b) b.innerHTML = cardHTML(S.loops[i], i); }
 
   function renderDetail(lp) {
     const G = S.G; const el = $('detail'); el.hidden = false;
@@ -488,6 +613,12 @@
         <div class="stat"><b>${lp.up != null ? nf0.format(lp.up) : '…'}</b><span>Hm auf</span></div>
         <div class="stat"><b>${lp.down != null ? nf0.format(lp.down) : '…'}</b><span>Hm ab</span></div>
         <div class="stat"><b>${fmtTime(time)}</b><span>Std.</span></div>
+      </div>
+      <div class="shares">
+        ${lp.st.hasForestData ? `<div><b>${pct(lp.st.forestAny, lp.st.total)} %</b><span>im Wald</span></div>` : ''}
+        <div><b>${pct(lp.st.unpaved, lp.st.total)} %</b><span>unbefestigt</span></div>
+        <div><b>${pct(lp.st.paved, lp.st.total)} %</b><span>Asphalt/Pflaster</span></div>
+        <div><b>${pct(lp.st.unknown, lp.st.total)} %</b><span>unbekannt</span></div>
       </div>
       <div>${profileSVG(lp)}</div>
       <h3 class="h3">Wegabschnitte · Variante ${VAR[lp.idx]}</h3>
