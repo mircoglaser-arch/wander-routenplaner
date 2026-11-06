@@ -218,14 +218,15 @@ def main():
                 tiles['long'][key].append(rec_long)
 
     os.makedirs(a.out, exist_ok=True)
-    index = {'v': 3, 'generated': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'tile': [TLAT, TLON], 'sets': {}}
+    gen = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    index = {'v': 3, 'generated': gen, 'tile': [TLAT, TLON], 'sets': {}}
     total = 0
     for name, tl in tiles.items():
         d = os.path.join(a.out, name); os.makedirs(d, exist_ok=True)
         keys = []
         for (i, jx), ways in tl.items():
             rel_ids = sorted({r for w in ways for r in w['routes']})
-            doc = {'v': 3, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rel_ids], 'ways': ways}
+            doc = {'v': 3, 'gen': gen, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rel_ids], 'ways': ways}
             raw = json.dumps(doc, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
             path = os.path.join(d, f'{i}_{jx}.json.gz')
             with open(path, 'wb') as f:
