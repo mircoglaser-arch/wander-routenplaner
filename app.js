@@ -13,22 +13,51 @@
     set(k, v) { try { localStorage.setItem('wk.' + k, JSON.stringify(v)); } catch (e) { /* ohne Speicher weiter */ } }
   };
 
-  const REGIONS = [
-    { id: 'koeln', name: 'Köln', place: 'Königsforst', ll: [50.9205, 7.1060] },
-    { id: 'bergisch', name: 'Bergisches Land', place: 'Altenberg', ll: [51.0555, 7.0330] },
-    { id: 'sieben', name: 'Siebengebirge', place: 'Margarethenhöhe', ll: [50.6830, 7.2445] },
-    { id: 'eifel', name: 'Eifel', place: 'Monschau', ll: [50.5550, 6.2400] },
-    { id: 'sauer', name: 'Sauerland', place: 'Winterberg', ll: [51.1940, 8.5310] },
-    { id: 'mosel', name: 'Mosel', place: 'Cochem', ll: [50.1460, 7.1660] },
-    { id: 'rhein', name: 'Rhein', place: 'Boppard', ll: [50.2310, 7.5900] },
-    { id: 'harz', name: 'Harz', place: 'Torfhaus', ll: [51.8040, 10.5330] },
-    { id: 'saechs', name: 'Sächsische Schweiz', place: 'Bad Schandau', ll: [50.9180, 14.1550] },
-    { id: 'schwarz', name: 'Schwarzwald', place: 'Titisee', ll: [47.9010, 8.1580] },
-    { id: 'allgaeu', name: 'Allgäu', place: 'Oberstdorf', ll: [47.4090, 10.2780] },
-    { id: 'pfalz', name: 'Pfälzerwald', place: 'Johanniskreuz', ll: [49.3480, 7.8240] },
-    { id: 'thuer', name: 'Thüringer Wald', place: 'Oberhof', ll: [50.7060, 10.7270] },
-    { id: 'ostsee', name: 'Ostsee', place: 'Sassnitz (Rügen)', ll: [54.5160, 13.6420] }
-  ];
+  // Wandergebiete nach Bundesland (Startpunkt jeweils an einem bekannten Wanderort)
+  const AREAS = {
+    'Nordrhein-Westfalen': [
+      ['koeln', 'Köln – Königsforst', 50.9205, 7.1060], ['bergisch', 'Bergisches Land – Altenberg', 51.0555, 7.0330],
+      ['sieben', 'Siebengebirge – Margarethenhöhe', 50.6830, 7.2445], ['eifel', 'Eifel – Monschau', 50.5550, 6.2400],
+      ['npeifel', 'Nationalpark Eifel – Gemünd', 50.5739, 6.4972], ['sauer', 'Sauerland – Winterberg', 51.1940, 8.5310],
+      ['rothaar', 'Rothaargebirge – Schmallenberg', 51.1525, 8.2860], ['teuto', 'Teutoburger Wald – Externsteine', 51.8690, 8.9170]],
+    'Rheinland-Pfalz': [
+      ['mosel', 'Mosel – Cochem', 50.1460, 7.1660], ['rhein', 'Mittelrhein – Boppard', 50.2310, 7.5900],
+      ['ahr', 'Ahrtal – Altenahr', 50.5170, 6.9900], ['vulkan', 'Vulkaneifel – Daun', 50.1980, 6.8320],
+      ['hunsr', 'Hunsrück – Morbach', 49.8090, 7.1270], ['wester', 'Westerwald – Hachenburg', 50.6600, 7.8200],
+      ['pfalz', 'Pfälzerwald – Johanniskreuz', 49.3480, 7.8240]],
+    'Saarland': [['saar', 'Saarschleife – Mettlach', 49.4940, 6.5970]],
+    'Hessen': [
+      ['taunus', 'Taunus – Großer Feldberg', 50.2320, 8.4570], ['rhoen', 'Rhön – Wasserkuppe', 50.4980, 9.9360],
+      ['vogels', 'Vogelsberg – Schotten', 50.5030, 9.1230], ['odenw', 'Odenwald – Michelstadt', 49.6780, 9.0030],
+      ['keller', 'Kellerwald-Edersee – Waldeck', 51.2050, 9.0600]],
+    'Baden-Württemberg': [
+      ['schwarzn', 'Nordschwarzwald – Baiersbronn', 48.5060, 8.3720], ['schwarz', 'Südschwarzwald – Titisee', 47.9010, 8.1580],
+      ['alb', 'Schwäbische Alb – Bad Urach', 48.4910, 9.3990], ['bodensee', 'Bodensee – Überlingen', 47.7670, 9.1590]],
+    'Bayern': [
+      ['allgaeu', 'Allgäu – Oberstdorf', 47.4090, 10.2780], ['garmisch', 'Werdenfelser Land – Garmisch-Partenkirchen', 47.4920, 11.0960],
+      ['tegern', 'Tegernseer Tal – Tegernsee', 47.7120, 11.7580], ['berchtes', 'Berchtesgadener Land – Berchtesgaden', 47.6300, 13.0010],
+      ['bayw', 'Bayerischer Wald – Neuschönau', 48.8850, 13.4700], ['fraenk', 'Fränkische Schweiz – Pottenstein', 49.7730, 11.4100],
+      ['altm', 'Altmühltal – Eichstätt', 48.8910, 11.1840], ['spess', 'Spessart – Lohr am Main', 49.9960, 9.5780],
+      ['fichtel', 'Fichtelgebirge – Bischofsgrün', 50.0510, 11.7990]],
+    'Thüringen': [['thuer', 'Thüringer Wald – Oberhof', 50.7060, 10.7270]],
+    'Sachsen': [
+      ['saechs', 'Sächsische Schweiz – Bad Schandau', 50.9180, 14.1550], ['erzg', 'Erzgebirge – Oberwiesenthal', 50.4200, 12.9700],
+      ['zittau', 'Zittauer Gebirge – Oybin', 50.8400, 14.7400]],
+    'Sachsen-Anhalt': [['harzst', 'Harz – Wernigerode', 51.8350, 10.7850]],
+    'Niedersachsen': [
+      ['harz', 'Harz – Torfhaus', 51.8040, 10.5330], ['heide', 'Lüneburger Heide – Undeloh', 53.1960, 9.9770],
+      ['weser', 'Weserbergland – Hameln', 52.1040, 9.3600]],
+    'Schleswig-Holstein': [['holst', 'Holsteinische Schweiz – Malente', 54.1700, 10.5600]],
+    'Mecklenburg-Vorpommern': [
+      ['ruegen', 'Rügen – Sassnitz', 54.5160, 13.6420], ['mueritz', 'Müritz – Waren', 53.5200, 12.6800],
+      ['usedom', 'Usedom – Heringsdorf', 53.9550, 14.1600]],
+    'Brandenburg': [['spree', 'Spreewald – Lübbenau', 51.8660, 13.9600], ['maerk', 'Märkische Schweiz – Buckow', 52.5700, 14.0700]],
+    'Berlin': [['grunew', 'Grunewald', 52.4700, 13.2500]]
+  };
+  const AREA = {};
+  for (const list of Object.values(AREAS)) for (const [id, name, la, lo] of list) AREA[id] = { id, name, ll: [la, lo] };
+  const areaOptions = `<option value="">Wandergebiet auswählen …</option>` + Object.entries(AREAS).map(([land, list]) =>
+    `<optgroup label="${esc(land)}">${list.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('')}</optgroup>`).join('');
   const OVERPASS = [
     'https://overpass.private.coffee/api/interpreter',
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
@@ -38,7 +67,7 @@
   const LONG_KM = 60;
 
   const S = {
-    start: null, startLabel: '', region: store.get('region', 'sieben'), L: store.get('len', 12),
+    start: null, startLabel: '', region: store.get('area', 'sieben'), L: store.get('len', 12),
     mode: store.get('mode', 'loop'), nature: store.get('nature', true), sort: 'best', end: null, endLabel: '', cancel: false, busy: false,
     G: null, loaded: null, snap: null, loops: [], sel: -1, picking: false,
     gpsLL: null, gpsAcc: null, watch: null, nav: null, wake: null
@@ -65,23 +94,18 @@
   let startMarker = null, gpsMarker = null, gpsCircle = null;
 
   /* ---------- Bedienelemente ---------- */
-  const regionsEl = $('regions');
-  regionsEl.innerHTML = REGIONS.map(r => `<button class="chip" type="button" data-id="${r.id}" aria-pressed="false" title="${esc(r.place)}">${esc(r.name)}</button>`).join('');
-  regionsEl.addEventListener('click', e => {
-    const b = e.target.closest('.chip'); if (!b) return;
-    const r = REGIONS.find(x => x.id === b.dataset.id);
-    S.region = r.id; store.set('region', r.id);
-    setStart(r.ll, `${r.name} · ${r.place}`, 'region');
-    map.setView(r.ll, 13);
+  const areaStart = $('areaStart'), areaEnd = $('areaEnd');
+  areaStart.innerHTML = areaOptions; areaEnd.innerHTML = areaOptions;
+  areaStart.addEventListener('change', () => {
+    const r = AREA[areaStart.value]; if (!r) return;
+    S.region = r.id; store.set('area', r.id);
+    setStart(r.ll, r.name, 'region');
+    if (S.mode === 'ab' && S.end) fitStartEnd(); else map.setView(r.ll, 13);
   });
-
-  const regionsEndEl = $('regionsEnd');
-  regionsEndEl.innerHTML = REGIONS.map(r => `<button class="chip" type="button" data-id="${r.id}" aria-pressed="false" title="${esc(r.place)}">${esc(r.name)}</button>`).join('');
-  regionsEndEl.addEventListener('click', e => {
-    const b = e.target.closest('.chip'); if (!b) return;
-    const r = REGIONS.find(x => x.id === b.dataset.id);
-    setEnd(r.ll, `${r.name} · ${r.place}`, r.id);
-    fitStartEnd();
+  areaEnd.addEventListener('change', () => {
+    const r = AREA[areaEnd.value]; if (!r) return;
+    setEnd(r.ll, r.name, r.id);
+    if (S.start) fitStartEnd(); else map.setView(r.ll, 13);
   });
   function fitStartEnd() { if (S.start && S.end) map.fitBounds(L.latLngBounds([S.start, S.end]), { padding: [60, 60] }); }
 
@@ -168,7 +192,7 @@
     if (!startMarker) startMarker = L.marker(ll, { icon: startIcon, draggable: true, zIndexOffset: 1000, title: 'Startpunkt (verschiebbar)' }).addTo(map)
       .on('dragend', ev => { const p = ev.target.getLatLng(); setStart([p.lat, p.lng], 'Verschobener Punkt', 'map'); });
     else startMarker.setLatLng(ll);
-    for (const b of regionsEl.children) b.setAttribute('aria-pressed', src === 'region' && b.dataset.id === S.region);
+    areaStart.value = src === 'region' ? S.region : '';
     $('startInfo').innerHTML = `Start: <b>${esc(label)}</b> · ${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}`;
   }
 
@@ -237,7 +261,7 @@
     if (!endMarker) endMarker = L.marker(ll, { icon: endIcon, draggable: true, zIndexOffset: 1000, title: 'Ziel (verschiebbar)' })
       .on('dragend', ev => { const p = ev.target.getLatLng(); setEnd([p.lat, p.lng], 'Verschobener Punkt', null); });
     endMarker.setLatLng(ll); if (S.mode === 'ab') endMarker.addTo(map);
-    for (const b of regionsEndEl.children) b.setAttribute('aria-pressed', b.dataset.id === regionId);
+    areaEnd.value = regionId && AREA[regionId] ? regionId : '';
     const d = S.start ? ` · Luftlinie ${km(WK.hav(S.start, ll))} km` : '';
     $('endInfo').innerHTML = `Ziel: <b>${esc(label)}</b>${d}`;
   }
@@ -291,14 +315,16 @@
     S.cancel = false;
     const t0 = performance.now(); let last = { done: 0, total: keys.length, cached: 0, failed: 0 };
     const show = () => { const p = last; const sec = Math.round((performance.now() - t0) / 1000);
-      status(`Lade ${what}: Kachel ${p.done} von ${p.total}${p.cached ? ` (${p.cached} vom Gerät)` : ''}${p.failed ? `, ${p.failed} fehlgeschlagen` : ''} · ${sec} s${p.slow ? ` – ${p.slow} Kacheln liegen außerhalb Deutschlands und kommen langsamer direkt von OpenStreetMap` : ''}`, null, 0.02 + 0.26 * p.done / p.total); };
-    const iv = setInterval(show, 1000);
+      status(`Lade ${what}: Kachel ${p.done} von ${p.total}${p.cached ? ` (${p.cached} vom Gerät)` : ''}${p.failed ? `, ${p.failed} fehlgeschlagen` : ''} · ${sec} s${p.slow ? ` – ${p.slow} Kacheln liegen außerhalb Deutschlands und werden nur kurz direkt bei OpenStreetMap nachgefragt` : ''}`, null, 0.02 + 0.26 * p.done / p.total); };
+    let finished = false;
+    const iv = setInterval(() => { if (!finished) show(); }, 1000);
     let res;
     let ex = { parts: [], failed: 0 };
     try {
-      if (extra.length) ex = await Tiles.load(extra, 'all', () => {}, () => S.cancel);
-      res = await Tiles.load(keys, set, p => { last = p; show(); }, () => S.cancel);
-    } finally { clearInterval(iv); }
+      [ex, res] = await Promise.all([
+        extra.length ? Tiles.load(extra, 'all', () => {}, () => S.cancel) : Promise.resolve(ex),
+        Tiles.load(keys, set, p => { last = p; if (!finished) show(); }, () => S.cancel)]);
+    } finally { finished = true; clearInterval(iv); }
     refreshOffline();
     if (S.cancel) throw new Error('cancel');
     if (!res.parts.length || res.failed > keys.length * 0.3) throw new Error('load');
@@ -471,7 +497,9 @@
     S.sel = -1;
     renderCards();
     await select(0, true);
-    for (let k = 1; k < S.loops.length; k++) { const lp = S.loops[k]; if (!lp.ele) { await loadElevation(lp); refreshCard(k); if (S.sel === k) renderDetail(lp); } }
+    // Höhen der übrigen Varianten: drei gleichzeitig
+    let next = 1; const run = async () => { while (next < S.loops.length) { const k = next++; const lp = S.loops[k]; if (!lp.ele) { await loadElevation(lp, false); refreshCard(k); if (S.sel === k) renderDetail(lp); } } };
+    await Promise.all([run(), run(), run()]);
   }
 
   function prepRoute(G, lp, sa, sb, A, B, idx) {
@@ -610,7 +638,7 @@
     const lp = S.loops[i];
     if (fit) map.fitBounds(L.latLngBounds(lp.coords), { padding: [24, 24] });
     renderDetail(lp);
-    if (!lp.ele) { await loadElevation(lp); if (S.sel === i) renderDetail(lp); refreshCard(i); }
+    if (!lp.ele || !lp.eleFine) { await loadElevation(lp, true); if (S.sel === i) renderDetail(lp); refreshCard(i); }
   }
   function refreshCard(i) { const b = $('results').querySelector(`.card[data-i="${i}"]`); if (b) b.innerHTML = cardHTML(S.loops[i], i); }
 
@@ -662,24 +690,87 @@
   }
 
   /* ---------- Höhen ---------- */
-  async function loadElevation(lp) {
-    const N = Math.min(800, Math.max(100, Math.round(lp.total / 250 / 100) * 100)); const pts = [];
+  // Höhendienst: höchstens zwei Abfragen gleichzeitig, bei Überlastung (429) mit Pause wiederholen
+  const eleQ = { active: 0, wait: [] };
+  async function eleFetch(part) {
+    if (eleQ.active >= 2) await new Promise(r => eleQ.wait.push(r));
+    eleQ.active++;
+    try {
+      for (let a = 0; a < 5; a++) {
+        const url = 'https://api.open-meteo.com/v1/elevation?latitude=' + part.map(p => p[0].toFixed(5)).join(',') + '&longitude=' + part.map(p => p[1].toFixed(5)).join(',');
+        const r = await fetch(url);
+        if (r.status === 429) { await sleep(1200 * (a + 1)); continue; }
+        if (!r.ok) throw new Error(r.status);
+        const j = await r.json(); if (!j.elevation || j.elevation.length !== part.length) throw new Error('ele');
+        return j.elevation;
+      }
+      throw new Error('429');
+    } finally { eleQ.active--; const n = eleQ.wait.shift(); if (n) n(); }
+  }
+  // Höhen aus Geländekacheln (AWS Terrain Tiles, Terrarium-Kodierung): Höhe = R·256 + G + B/256 − 32768
+  const demCache = new Map();
+  function demTile(z, x, y) {
+    const k = z + '/' + x + '/' + y;
+    if (demCache.has(k)) return demCache.get(k);
+    const p = (async () => {
+      const r = await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${k}.png`);
+      if (!r.ok) throw new Error(r.status);
+      const bmp = await createImageBitmap(await r.blob());
+      const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+      return g.getImageData(0, 0, 256, 256).data;
+    })();
+    demCache.set(k, p);
+    if (demCache.size > 160) demCache.delete(demCache.keys().next().value);
+    p.catch(() => demCache.delete(k));
+    return p;
+  }
+  async function demHeights(pts, z) {
+    const n = 2 ** z, out = new Array(pts.length);
+    const jobs = new Map();
+    pts.forEach((p, i) => {
+      const x = (p[1] + 180) / 360 * n, r = p[0] * Math.PI / 180;
+      const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n;
+      const tx = Math.floor(x), ty = Math.floor(y), k = tx + '/' + ty;
+      if (!jobs.has(k)) jobs.set(k, { tx, ty, list: [] });
+      jobs.get(k).list.push([i, Math.min(255, Math.floor((x - tx) * 256)), Math.min(255, Math.floor((y - ty) * 256))]);
+    });
+    const all = [...jobs.values()]; let next = 0;
+    const work = async () => {
+      while (next < all.length) {
+        const j = all[next++]; const d = await demTile(z, j.tx, j.ty);
+        for (const [i, px, py] of j.list) { const o = (py * 256 + px) * 4; out[i] = d[o] * 256 + d[o + 1] + d[o + 2] / 256 - 32768; }
+      }
+    };
+    await Promise.all([work(), work(), work(), work(), work(), work()]);
+    return out;
+  }
+
+  // fine: ausgewählte Variante in voller Auflösung, sonst grober
+  async function loadElevation(lp, fine) {
+    if (lp.ele && lp.ele.length && (!fine || lp.eleFine)) return;
+    const km_ = lp.total / 1000;
+    const z = km_ <= 30 ? 13 : km_ <= 100 ? 12 : 11;
+    const N = Math.max(100, Math.min(fine ? 1500 : 400, Math.round(lp.total / (fine ? 40 : 120)))); const pts = [];
     for (let k = 0; k < N; k++) pts.push(pointAt(lp, lp.total * k / (N - 1)));
     try {
-      const e = [];
-      for (let c = 0; c < N; c += 100) {
-        const part = pts.slice(c, c + 100);
-        const url = 'https://api.open-meteo.com/v1/elevation?latitude=' + part.map(p => p[0].toFixed(5)).join(',') + '&longitude=' + part.map(p => p[1].toFixed(5)).join(',');
-        const r = await fetch(url); if (!r.ok) throw new Error(r.status);
-        const j = await r.json(); if (!j.elevation || j.elevation.length !== part.length) throw new Error('ele');
-        e.push(...j.elevation);
+      let e;
+      try { e = await demHeights(pts, z); }
+      catch (err) {
+        // Rückfall: Open-Meteo mit wenigen Punkten
+        const M = 100, sub = []; for (let k = 0; k < M; k++) sub.push(pointAt(lp, lp.total * k / (M - 1)));
+        const h = await eleFetch(sub); pts.length = 0; pts.push(...sub); e = h;
       }
-      const sm = e.map((v, k) => (e[Math.max(0, k - 1)] + v + e[Math.min(N - 1, k + 1)]) / 3);
-      let up = 0, down = 0;
-      for (let k = 1; k < N; k++) { const d = sm[k] - sm[k - 1]; if (d > 0) up += d; else down -= d; }
-      lp.ele = e.map((v, k) => ({ d: lp.total * k / (N - 1), h: v, ll: pts[k] }));
+      const N2 = pts.length;
+      // glätten (gleitendes Mittel über ca. 120 m) und Höhenmeter mit 3-m-Schwelle zählen
+      const w = Math.max(1, Math.round(120 / (lp.total / N2) / 2));
+      const sm = e.map((v, k) => { let a = 0, c = 0; for (let q = Math.max(0, k - w); q <= Math.min(N2 - 1, k + w); q++) { a += e[q]; c++; } return a / c; });
+      let up = 0, down = 0, ref = sm[0];
+      for (let k = 1; k < N2; k++) { const d = sm[k] - ref; if (d >= 3) { up += d; ref = sm[k]; } else if (d <= -3) { down -= d; ref = sm[k]; } }
+      lp.ele = e.map((v, k) => ({ d: lp.total * k / (N2 - 1), h: sm[k], ll: pts[k] }));
       lp.up = Math.round(up / 5) * 5; lp.down = Math.round(down / 5) * 5;
-    } catch (err) { lp.ele = []; }
+      lp.eleFine = !!fine;
+    } catch (err) { if (!lp.ele) lp.ele = []; }
   }
 
   function profileSVG(lp) {
@@ -793,8 +884,9 @@
   refreshOffline();
 
   /* ---------- Start ---------- */
-  const r0 = REGIONS.find(r => r.id === S.region) || REGIONS[2];
-  setStart(r0.ll, `${r0.name} · ${r0.place}`, 'region');
+  const r0 = AREA[S.region] || AREA.sieben;
+  S.region = r0.id;
+  setStart(r0.ll, r0.name, 'region');
   map.setView(r0.ll, 13);
   setMode(S.mode);
   // Bereits erteilte Standortfreigabe still nutzen

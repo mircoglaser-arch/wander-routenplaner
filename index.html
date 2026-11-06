@@ -95,6 +95,8 @@ button{font:inherit;color:inherit}
 .sugg li span{font-size:12px;color:var(--muted)}
 .sugg li[aria-selected="true"],.sugg li:hover{background:var(--surface-2)}
 .sugg li.none{cursor:default;color:var(--muted)}
+.area{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);color:var(--ink);font:500 15px/1.2 var(--f-body)}
+.area:focus-visible{outline:2px solid var(--forest)}
 .startinfo{font-size:13px;color:var(--muted);min-height:1.2em}
 .startinfo b{color:var(--ink);font-weight:600}
 
@@ -234,7 +236,7 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
         <button class="btn" id="btnGps" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Mein Standort</button>
         <button class="btn" id="btnPick" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>Auf Karte wählen</button>
       </div>
-      <div class="chips" id="regions" role="group" aria-label="Region"></div>
+      <select class="area" id="areaStart" aria-label="Wandergebiet als Start"></select>
       <div class="startinfo" id="startInfo"></div>
     </div>
 
@@ -248,7 +250,7 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
         <button class="btn" id="btnPickEnd" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>Auf Karte wählen</button>
         <button class="btn" id="btnSwap" type="button" title="Start und Ziel tauschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg>Tauschen</button>
       </div>
-      <div class="chips" id="regionsEnd" role="group" aria-label="Zielregion"></div>
+      <select class="area" id="areaEnd" aria-label="Wandergebiet als Ziel"></select>
       <div class="startinfo" id="endInfo">Noch kein Ziel gewählt.</div>
     </div>
 
@@ -278,7 +280,7 @@ input[type=range]{width:100%;accent-color:var(--forest);height:28px}
     <footer class="credits">
       Wegedaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL) ·
       Markierungsebene: <a href="https://hiking.waymarkedtrails.org" target="_blank" rel="noopener">Waymarked Trails</a> ·
-      Höhen: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (Copernicus DEM) ·
+      Höhen: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a> (u.&nbsp;a. SRTM, EU-DEM) ·
       Gehzeit nach DIN 33466 · Prototyp, ohne Gewähr – vor Ort gilt die Beschilderung.
     </footer>
   </section>

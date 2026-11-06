@@ -169,26 +169,43 @@
     }
     const report = () => onProgress && onProgress({ done, total: keys.length, cached, failed, slow });
     report();
-    let idx = 0;
-    const worker = async (lane) => {
-      while (idx < todo.length) {
-        if (isCancelled && isCancelled()) return;
-        const { k, cov } = todo[idx++];
-        try {
-          const d = cov === 'have' ? await fetchStatic(set, k, gen) : await fetchOverpass(set, k);
-          // Nur Kacheln speichern, die zum aktuellen Datenstand passen (CDN kann kurz Altes liefern)
-          const fresh = cov !== 'have' || !d.gen || d.gen === gen;
-          const v = { gen: cov === 'have' ? (fresh ? gen : 'stale') : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(w => ({ id: w.id, routes: w.routes, c: Float32Array.from(w.c), j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f })) };
-          if (fresh) await put(`${set}:${k}`, v); else mem.set(`${set}:${k}`, v);
-          parts.push(v);
-        } catch (e) { failed++; }
-        done++; report();
-      }
+    const fetchOne = async ({ k, cov }) => {
+      try {
+        const d = cov === 'have' ? await fetchStatic(set, k, gen) : await fetchOverpass(set, k);
+        // Nur Kacheln speichern, die zum aktuellen Datenstand passen (CDN kann kurz Altes liefern)
+        const fresh = cov !== 'have' || !d.gen || d.gen === gen;
+        const v = { gen: cov === 'have' ? (fresh ? gen : 'stale') : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(w => ({ id: w.id, routes: w.routes, c: Float32Array.from(w.c), j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f })) };
+        if (fresh) await put(`${set}:${k}`, v); else mem.set(`${set}:${k}`, v);
+        parts.push(v);
+        return true;
+      } catch (e) { return false; }
     };
-    // Vorbereitete Kacheln kommen vom CDN: mehrere gleichzeitig; Overpass schonen
-    const lanes = todo.some(t => t.cov === 'outside') ? 2 : 6;
-    await Promise.all(Array.from({ length: lanes }, (_, i) => worker(i)));
-    return { parts, failed, cached, source: ix ? 'static' : 'overpass' };
+    const pool = (list, lanes, onFail, stop) => {
+      let i = 0;
+      const w = async () => {
+        while (i < list.length) {
+          if ((isCancelled && isCancelled()) || (stop && stop())) return;
+          const t = list[i++];
+          if (!(await fetchOne(t))) onFail();
+          done++; report();
+        }
+      };
+      return Promise.all(Array.from({ length: lanes }, w));
+    };
+    const stat = todo.filter(t => t.cov === 'have'), out = todo.filter(t => t.cov !== 'have');
+    // Vorbereitete Kacheln vom CDN: viele gleichzeitig. Kacheln außerhalb Deutschlands über Overpass:
+    // höchstens 2 gleichzeitig und – wenn es vorbereitete Daten gibt – nur so lange, wie die Zeit reicht.
+    const budget = ix ? 8000 : Infinity; const t0 = Date.now();
+    let expired = false;
+    const outP = pool(out, 2, () => { if (!ix) failed++; }, () => expired);
+    await pool(stat, 12, () => { failed++; });
+    if (out.length) {
+      const left = budget - (Date.now() - t0);
+      if (left === Infinity) await outP;
+      else await Promise.race([outP, new Promise(r => setTimeout(r, Math.max(0, left)))]);
+      expired = true;   // laufende Abfragen dürfen fertig werden und landen für das nächste Mal im Speicher
+    }
+    return { parts: parts.slice(), failed, cached, source: ix ? 'static' : 'overpass' };
   }
 
   root.Tiles = { tilesCircle, tilesCorridor, tilesRegion, load, index, storedKeys, clear, REGION };
