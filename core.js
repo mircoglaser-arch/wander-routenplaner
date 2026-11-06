@@ -130,7 +130,7 @@
     for (const e of G.edges) {
       let m = 1;
       if (nature) {
-        m = e.s === 2 ? 1.35 : e.s === 1 ? 0.9 : 1.05;
+        m = ({ 1: 0.86, 3: 0.9, 4: 0.96, 2: 1.35 })[e.s] || 1.05;
         if (e.f >= 0) m *= 1 - 0.15 * e.f / 100;
       }
       e.w = e.base * m;
@@ -138,15 +138,19 @@
     G.nature = !!nature;
   }
 
-  const edgeClass = e => (e.f >= 50 ? 'forest' : e.s === 1 ? 'unpaved' : e.s === 2 ? 'paved' : 'unknown');
+  // Wegbeschaffenheit: 1 Pfad, 3 Wald-/Feldweg, 4 Schotterweg, 2 Asphalt/Pflaster, 0 unbekannt
+  const SURF = { 1: 'pfad', 3: 'waldweg', 4: 'schotter', 2: 'asphalt', 0: 'unbekannt' };
+  const edgeClass = e => SURF[e.s] || 'unbekannt';
   function routeStats(G, steps) {
-    const st = { forest: 0, unpaved: 0, paved: 0, unknown: 0, total: 0, forestAny: 0, hasForestData: false };
+    const st = { pfad: 0, waldweg: 0, schotter: 0, asphalt: 0, unbekannt: 0, total: 0, forestAny: 0, hasForestData: false };
     for (const x of steps) {
       const e = G.edges[x.e];
       st.total += e.len;
       if (e.f >= 0) { st.forestAny += e.len * e.f / 100; st.hasForestData = true; }
-      if (e.s === 1) st.unpaved += e.len; else if (e.s === 2) st.paved += e.len; else st.unknown += e.len;
+      st[edgeClass(e)] += e.len;
     }
+    // Kompatibilität für die Bewertung
+    st.paved = st.asphalt; st.unpaved = st.pfad + st.waldweg + st.schotter; st.unknown = st.unbekannt;
     return st;
   }
   // Abschnitte gleicher Art (Wald, unbefestigt, befestigt, unbekannt) für die Darstellung

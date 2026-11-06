@@ -492,8 +492,20 @@
   }
 
   const VAR = 'ABCDEFGHIJ'.split('');
-  const CLS = { forest: '--c-forest', unpaved: '--c-unpaved', paved: '--c-paved', unknown: '--c-unknown', none: '--c-unknown' };
+  const SURF = [
+    ['pfad', 'Pfad', '--c-pfad'], ['waldweg', 'Wald-/Feldweg', '--c-waldweg'], ['schotter', 'Schotterweg', '--c-schotter'],
+    ['asphalt', 'Asphalt/Pflaster', '--c-asphalt'], ['unbekannt', 'Unbekannt', '--c-unbekannt']
+  ];
+  const CLS = Object.fromEntries(SURF.map(x => [x[0], x[2]])); CLS.none = '--c-unbekannt';
   const pct = (x, t) => t > 0 ? Math.round(100 * x / t) : 0;
+  // Anteile so runden, dass sie zusammen genau 100 % ergeben (größter Rest)
+  function shares100(st) {
+    const t = st.total || 1;
+    const raw = SURF.map(([k]) => 100 * st[k] / t);
+    const out = raw.map(Math.floor); let rest = 100 - out.reduce((a, b) => a + b, 0);
+    raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (rest > 0) { out[i]++; rest--; } });
+    return SURF.map(([k, label, color], i) => ({ k, label, color, p: out[i] }));
+  }
 
   // Mini-Karte: OSM-Kacheln als SVG-Bilder plus Route nach Wegeart eingefärbt
   function miniMap(lp) {
@@ -518,26 +530,23 @@
     const marks = `<circle cx="${sx}" cy="${sy}" r="5.5" fill="var(--forest)" stroke="#fff" stroke-width="2"/>` + (S.mode === 'ab' ? `<circle cx="${ex}" cy="${ey}" r="5.5" fill="var(--blaze)" stroke="#fff" stroke-width="2"/>` : '');
     return `<svg class="mini" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="${W}" height="${H}" fill="var(--surface-2)"/><g class="tiles">${imgs}</g>${halo}${lines}${marks}</svg>`;
   }
-  function mixBar(st) {
-    const t = st.total || 1, fo = Math.min(st.forestAny, st.unpaved + st.paved + st.unknown);
-    // Belag als Balken, Waldanteil getrennt als Zahl
-    return `<div class="mix" aria-hidden="true"><i style="width:${pct(st.unpaved, t)}%;background:var(--c-unpaved)"></i><i style="width:${pct(st.paved, t)}%;background:var(--c-paved)"></i><i style="width:${pct(st.unknown, t)}%;background:var(--line)"></i></div>`;
+  function mixBar(sh) {
+    return `<div class="mix" aria-hidden="true">${sh.filter(x => x.p).map(x => `<i style="width:${x.p}%;background:var(${x.color})"></i>`).join('')}</div>`;
   }
   function cardHTML(lp, i) {
     const time = WK.walkTime(lp.total / 1000, lp.up || 0, lp.down || 0);
-    const st = lp.st, t = st.total;
-    const forest = st.hasForestData ? `${pct(st.forestAny, t)} % Wald` : '';
+    const st = lp.st, sh = shares100(st);
     return `${miniMap(lp)}
       <div class="cbody">
         <div class="ctop"><span class="v">${VAR[lp.idx]}</span><span class="km">${km(lp.total)}<small> km</small></span></div>
-        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}</div>
-        ${mixBar(st)}
-        <div class="meta tags">${forest ? `<b class="tg f">${forest}</b>` : ''}<b class="tg u">${pct(st.unpaved, t)} % unbefestigt</b><b class="tg p">${pct(st.paved, t)} % Asphalt</b></div>
+        <div class="meta">${fmtTime(time)} h${lp.up != null ? ` · ${nf0.format(lp.up)} Hm` : ''}${st.hasForestData ? ` · <span class="wald">${pct(st.forestAny, st.total)} % im Wald</span>` : ''}</div>
+        ${mixBar(sh)}
+        <ul class="surf">${sh.map(x => `<li${x.p ? '' : ' class="zero"'}><i style="background:var(${x.color})"></i>${x.label}<b>${x.p} %</b></li>`).join('')}</ul>
       </div>`;
   }
   function sortedIdx() {
     const ix = S.loops.map((_, i) => i);
-    const nat = lp => (lp.st.forestAny + lp.st.unpaved - lp.st.paved) / lp.st.total;
+    const nat = lp => (lp.st.forestAny + lp.st.pfad * 1.2 + lp.st.waldweg + lp.st.schotter * 0.6 - lp.st.asphalt) / lp.st.total;
     if (S.sort === 'nature') ix.sort((a, b) => nat(S.loops[b]) - nat(S.loops[a]));
     else if (S.sort === 'short') ix.sort((a, b) => S.loops[a].total - S.loops[b].total);
     else if (S.sort === 'flat') ix.sort((a, b) => (S.loops[a].up ?? 1e9) - (S.loops[b].up ?? 1e9));
@@ -549,7 +558,7 @@
     el.innerHTML = `<div class="rhead"><b>${n} Variante${n > 1 ? 'n' : ''}</b>
         <label class="sortl" for="sortSel">Sortieren
         <select id="sortSel"><option value="best">Empfohlen</option><option value="nature">Meiste Natur</option><option value="short">Kürzeste</option><option value="flat">Wenigste Höhenmeter</option></select></label></div>
-      <div class="legend"><span><i style="background:var(--c-forest)"></i>Wald</span><span><i style="background:var(--c-unpaved)"></i>unbefestigt</span><span><i style="background:var(--c-paved)"></i>Asphalt/Pflaster</span><span><i style="background:var(--c-unknown)"></i>unbekannt</span></div>
+      <div class="legend">${SURF.map(x => `<span><i style="background:var(${x[2]})"></i>${x[1]}</span>`).join('')}</div>
       <div class="cards" id="cards">${sortedIdx().map(i => `<button class="card" type="button" data-i="${i}" aria-pressed="${i === S.sel}">${cardHTML(S.loops[i], i)}</button>`).join('')}</div>`;
     const sel = $('sortSel'); sel.value = S.sort;
     sel.onchange = () => { S.sort = sel.value; renderCards(); };
@@ -615,10 +624,10 @@
         <div class="stat"><b>${fmtTime(time)}</b><span>Std.</span></div>
       </div>
       <div class="shares">
-        ${lp.st.hasForestData ? `<div><b>${pct(lp.st.forestAny, lp.st.total)} %</b><span>im Wald</span></div>` : ''}
-        <div><b>${pct(lp.st.unpaved, lp.st.total)} %</b><span>unbefestigt</span></div>
-        <div><b>${pct(lp.st.paved, lp.st.total)} %</b><span>Asphalt/Pflaster</span></div>
-        <div><b>${pct(lp.st.unknown, lp.st.total)} %</b><span>unbekannt</span></div>
+        <h3 class="h3">Wegbeschaffenheit</h3>
+        ${mixBar(shares100(lp.st))}
+        <ul class="surf big">${shares100(lp.st).map(x => `<li${x.p ? '' : ' class="zero"'}><i style="background:var(${x.color})"></i>${x.label}<b>${x.p} % · ${km(lp.st[x.k] + (x.k === 'unbekannt' ? lp.total - lp.st.total : 0))} km</b></li>`).join('')}</ul>
+        ${lp.st.hasForestData ? `<p class="note"><span class="wald">${pct(lp.st.forestAny, lp.st.total)} % der Strecke führen durch Wald</span> (unabhängig von der Wegart).</p>` : ''}
       </div>
       <div>${profileSVG(lp)}</div>
       <h3 class="h3">Wegabschnitte · Variante ${VAR[lp.idx]}</h3>

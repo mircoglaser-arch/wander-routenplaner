@@ -3,7 +3,7 @@
   'use strict';
   const TLAT = 0.1, TLON = 0.15;          // ca. 11 × 10,5 km pro Kachel
   const STATIC = 'https://raw.githubusercontent.com/mircoglaser-arch/wander-routenplaner/data/';
-  const DBN = 'wander-routenplaner-2', ST = 'tiles';
+  const DBN = 'wander-routenplaner-3', ST = 'tiles';
   const REGION = [49.9, 6.0, 51.5, 8.7];   // Köln, Bergisches Land, Eifel, Sauerland, Siebengebirge, Mosel, Rhein
   const SERVERS = [
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
