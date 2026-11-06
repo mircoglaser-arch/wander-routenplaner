@@ -26,21 +26,23 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q osmium-tool
-          pip install osmium
+          pip install osmium pillow
 
-      - name: OSM-Daten laden und auf Wanderrouten filtern
+      - name: OSM-Daten laden, Wanderrouten und Waldflächen filtern
         run: |
           mkdir -p work && cd work
           for r in nordrhein-westfalen rheinland-pfalz; do
             curl -fsSL --retry 3 -o "$r.pbf" "https://download.geofabrik.de/europe/germany/$r-latest.osm.pbf"
             osmium tags-filter "$r.pbf" r/route=hiking,foot -o "$r-routes.pbf"
+            osmium tags-filter "$r.pbf" wr/landuse=forest wr/natural=wood -o "$r-forest.pbf"
             rm "$r.pbf"
           done
           osmium merge nordrhein-westfalen-routes.pbf rheinland-pfalz-routes.pbf -o routes.pbf
+          osmium merge nordrhein-westfalen-forest.pbf rheinland-pfalz-forest.pbf -o forest.pbf
           ls -lh
 
       - name: Kacheln erzeugen
-        run: python3 scripts/build_tiles.py work/routes.pbf out
+        run: python3 scripts/build_tiles.py work/routes.pbf out --forest work/forest.pbf
 
       - name: Auf Branch "data" veröffentlichen
         run: |
