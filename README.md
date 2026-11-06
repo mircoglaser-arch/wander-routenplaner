@@ -3,7 +3,7 @@
 Web-App für Rundkurse und Start–Ziel-Touren bis 200 km auf offiziell markierten Wanderwegen
 (Köln, Bergisches Land, Eifel, Siebengebirge, Sauerland, Mosel, Rhein).
 
-Live: https://wegekreuz.netlify.app
+Live: https://wander-routenplaner.netlify.app
 
 ## Aufbau
 - `index.html`, `app.js` – Oberfläche, Karte (Leaflet), GPS, Navigation, Höhenprofil, GPX
