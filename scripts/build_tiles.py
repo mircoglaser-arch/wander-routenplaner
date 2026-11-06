@@ -6,7 +6,7 @@ Ausgabe: <out>/index.json, <out>/all/<i>_<j>.json.gz, <out>/long/<i>_<j>.json.gz
 
 Kachelformat (wie im Client data.js):
   {"v":3,"rels":[{"id":..,"tags":{..}}],"ways":[{"id":..,"routes":[..],"c":[lat,lon,..],"j":[idx,nodeId,..],"s":0|1|2,"f":0..100}]}
-  s = Belag (1 unbefestigt, 2 befestigt/asphaltiert, 0 unbekannt), f = Anteil der Strecke im Wald in Prozent
+  s = Wegbeschaffenheit (1 Pfad, 3 Wald-/Feldweg, 4 Schotterweg, 2 Asphalt/Pflaster, 0 unbekannt), f = Anteil der Strecke im Wald in Prozent
   j = Teilungspunkte des Weges (Kreuzungen mit anderen markierten Wegen und Wegenden), global berechnet.
 """
 import argparse, gzip, json, math, os, sys, time
@@ -20,24 +20,30 @@ except ImportError:
 TLAT, TLON = 0.1, 0.15
 KEEP = ['name', 'name:de', 'ref', 'network', 'osmc:symbol', 'colour', 'operator', 'from', 'to', 'distance', 'website', 'symbol']
 LONG_NETS = {'rwn', 'nwn', 'iwn'}
-UNPAVED = {'unpaved', 'compacted', 'fine_gravel', 'gravel', 'dirt', 'earth', 'ground', 'grass', 'mud', 'sand', 'woodchips',
-           'pebblestone', 'rock', 'forest_floor', 'grass_paver', 'shells', 'snow', 'stepping_stones'}
+# Wegbeschaffenheit, Klassen wie im Client:
+# 1 Pfad, 3 Wald-/Feldweg, 4 Schotterweg, 2 Asphalt/Pflaster, 0 unbekannt
+GRAVEL = {'gravel', 'fine_gravel', 'compacted', 'pebblestone', 'shells', 'grass_paver'}
+NATURAL = {'unpaved', 'dirt', 'earth', 'ground', 'grass', 'mud', 'sand', 'woodchips', 'rock', 'forest_floor', 'snow',
+           'stepping_stones', 'roots'}
 PAVED = {'asphalt', 'paved', 'concrete', 'concrete:plates', 'concrete:lanes', 'paving_stones', 'sett', 'cobblestone',
          'unhewn_cobblestone', 'metal', 'wood', 'bricks', 'chipseal'}
 PAVED_HW = {'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street',
             'service', 'pedestrian', 'cycleway', 'primary_link', 'secondary_link', 'tertiary_link'}
-UNPAVED_HW = {'path', 'bridleway'}
+PATH_HW = {'path', 'footway', 'bridleway', 'steps'}
 
 
 def surface_class(tags):
+    hw = tags.get('highway')
     s = (tags.get('surface') or '').split(';')[0].strip()
-    if s in UNPAVED: return 1
     if s in PAVED: return 2
+    if s in GRAVEL: return 4
+    if s in NATURAL: return 1 if hw in PATH_HW else 3
     tt = tags.get('tracktype')
     if tt == 'grade1': return 2
-    if tt in ('grade2', 'grade3', 'grade4', 'grade5'): return 1
-    hw = tags.get('highway')
-    if hw == 'track' or hw in UNPAVED_HW: return 1
+    if tt == 'grade2': return 4
+    if tt in ('grade3', 'grade4', 'grade5'): return 3
+    if hw == 'track': return 3
+    if hw in ('path', 'bridleway'): return 1
     if hw in PAVED_HW: return 2
     return 0
 
