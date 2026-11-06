@@ -10,7 +10,9 @@ Kachelformat (wie im Client data.js):
   j = Teilungspunkte des Weges (Kreuzungen mit anderen markierten Wegen und Wegenden), global berechnet.
 """
 import argparse, gzip, json, math, os, sys, time
+from array import array
 from collections import defaultdict
+import numpy as np
 import osmium
 try:
     from PIL import Image, ImageDraw
@@ -91,14 +93,14 @@ class Forest(osmium.SimpleHandler):
 
 
 def forest_share(fr, cs):
-    """Anteil der Weglänge im Wald, Stichproben alle ca. 30 m."""
+    """Anteil der Weglänge im Wald, Stichproben alle ca. 50 m."""
     if fr is None:
         return -1
     tot = inn = 0.0
     for k in range(2, len(cs), 2):
         la0, lo0, la1, lo1 = cs[k - 2], cs[k - 1], cs[k], cs[k + 1]
         d = math.hypot((la1 - la0) * 111000, (lo1 - lo0) * 111000 * math.cos(math.radians(la0)))
-        n = max(1, int(d / 30))
+        n = max(1, int(d / 50))
         for q in range(n):
             t = (q + 0.5) / n
             if fr.inside(la0 + (la1 - la0) * t, lo0 + (lo1 - lo0) * t):
@@ -134,26 +136,70 @@ class Ways(osmium.SimpleHandler):
     def __init__(self, wanted):
         super().__init__()
         self.wanted = wanted
-        self.ways = {}            # id -> (node ids, coords)
+        self.ways = {}            # id -> (node ids, coords) als kompakte Arrays
         self.surf = {}
+        self.bounds = [90.0, 180.0, -90.0, -180.0]
 
     def way(self, w):
         if w.id not in self.wanted:
             return
-        ids, cs = [], []
+        ids, cs = array('q'), array('d')
+        b = self.bounds
         for n in w.nodes:
             if not n.location.valid():
                 return
-            ids.append(n.ref)
-            cs.append(round(n.location.lat, 5))
-            cs.append(round(n.location.lon, 5))
+            la, lo = round(n.location.lat, 5), round(n.location.lon, 5)
+            ids.append(n.ref); cs.append(la); cs.append(lo)
+            if la < b[0]: b[0] = la
+            if lo < b[1]: b[1] = lo
+            if la > b[2]: b[2] = la
+            if lo > b[3]: b[3] = lo
         if len(ids) >= 2:
             self.ways[w.id] = (ids, cs)
-            self.surf[w.id] = surface_class(w.tags)
+            sc = surface_class(w.tags)
+            if sc:
+                self.surf[w.id] = sc
 
 
 def tile_of(lat, lon):
     return math.floor(lat / TLAT), math.floor(lon / TLON)
+
+
+def read_poly(path):
+    """Geofabrik-.poly: Liste äußerer Ringe [(lon, lat), …]; Löcher (!) werden ignoriert."""
+    rings, cur, hole = [], None, False
+    with open(path) as f:
+        lines = [l.strip() for l in f if l.strip()]
+    for l in lines[1:]:
+        if l == 'END':
+            if cur is not None:
+                if not hole: rings.append(cur)
+                cur = None
+            continue
+        if cur is None:
+            hole = l.startswith('!'); cur = []
+            continue
+        x, y = l.split()[:2]
+        cur.append((float(x), float(y)))
+    return rings
+
+
+def covered_tiles(rings, sub=8):
+    """Kacheln, die (auch teilweise) im Polygon liegen – per Rasterung mit sub × sub Pixeln je Kachel."""
+    pts = [p for r in rings for p in r]
+    j0 = math.floor(min(p[0] for p in pts) / TLON); j1 = math.floor(max(p[0] for p in pts) / TLON)
+    i0 = math.floor(min(p[1] for p in pts) / TLAT); i1 = math.floor(max(p[1] for p in pts) / TLAT)
+    W, H = (j1 - j0 + 1) * sub, (i1 - i0 + 1) * sub
+    img = Image.new('1', (W, H), 0); dr = ImageDraw.Draw(img)
+    for r in rings:
+        dr.polygon([((x / TLON - j0) * sub, (i1 + 1 - y / TLAT) * sub) for x, y in r], fill=1)
+    out = []
+    for i in range(i0, i1 + 1):
+        for j in range(j0, j1 + 1):
+            x = (j - j0) * sub; y = (i1 - i) * sub
+            if img.crop((x, y, x + sub, y + sub)).getbbox():
+                out.append(f'{i}_{j}')
+    return out
 
 
 def main():
@@ -162,6 +208,7 @@ def main():
     ap.add_argument('out')
     ap.add_argument('--bbox', help='S,W,N,E – nur Kacheln in diesem Rechteck schreiben')
     ap.add_argument('--forest', help='OSM-Datei mit Wald-/Gehölzflächen')
+    ap.add_argument('--poly', help='Geofabrik-.poly des abgedeckten Gebiets')
     a = ap.parse_args()
     t0 = time.time()
 
@@ -172,18 +219,18 @@ def main():
 
     fr = None
     if a.forest and Image is not None and wh.ways:
-        lats = [c for _, cs in wh.ways.values() for c in cs[0::2]]
-        lons = [c for _, cs in wh.ways.values() for c in cs[1::2]]
-        fr = Forest((min(lats) - 0.05, min(lons) - 0.05, max(lats) + 0.05, max(lons) + 0.05))
+        b = wh.bounds
+        fr = Forest((b[0] - 0.05, b[1] - 0.05, b[2] + 0.05, b[3] + 0.05))
         fr.apply_file(a.forest, locations=True, idx='flex_mem')
         fr.finish()
         print(f'{fr.count} Waldflächen gerastert ({fr.W} × {fr.H})', flush=True)
 
     # Kreuzungen: Knoten, die in mehreren Wegen vorkommen, plus Wegenden
-    use = defaultdict(int)
-    for ids, _ in wh.ways.values():
-        for k, n in enumerate(ids):
-            use[n] += 2 if k in (0, len(ids) - 1) else 1
+    allids = np.concatenate([np.frombuffer(ids, dtype=np.int64) for ids, _ in wh.ways.values()])
+    u, cnt = np.unique(allids, return_counts=True)
+    junction = set(u[cnt > 1].tolist())
+    del allids, u, cnt
+    print(f'{len(junction)} Kreuzungspunkte', flush=True)
 
     bbox = [float(x) for x in a.bbox.split(',')] if a.bbox else None
     tiles = {'all': defaultdict(list), 'long': defaultdict(list)}
@@ -192,8 +239,9 @@ def main():
         if not routes:
             continue
         j = []
+        last = len(ids) - 1
         for k, n in enumerate(ids):
-            if k == 0 or k == len(ids) - 1 or use[n] > 1:
+            if k == 0 or k == last or n in junction:
                 j += [k, n]
         keys = set()
         for k in range(0, len(cs), 2):
@@ -226,7 +274,8 @@ def main():
         keys = []
         for (i, jx), ways in tl.items():
             rel_ids = sorted({r for w in ways for r in w['routes']})
-            doc = {'v': 3, 'gen': gen, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rel_ids], 'ways': ways}
+            doc = {'v': 3, 'gen': gen, 'rels': [{'id': r, 'tags': rh.rels[r]} for r in rel_ids],
+                   'ways': [dict(w, c=w['c'].tolist()) for w in ways]}
             raw = json.dumps(doc, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
             path = os.path.join(d, f'{i}_{jx}.json.gz')
             with open(path, 'wb') as f:
@@ -237,6 +286,9 @@ def main():
         print(f'{name}: {len(keys)} Kacheln', flush=True)
     if bbox:
         index['bbox'] = bbox
+    if a.poly and Image is not None:
+        index['cover'] = covered_tiles(read_poly(a.poly))
+        print(f'abgedeckt: {len(index["cover"])} Kacheln', flush=True)
     with open(os.path.join(a.out, 'index.json'), 'w') as f:
         json.dump(index, f, separators=(',', ':'))
     print(f'fertig in {time.time() - t0:.0f} s, {total / 1e6:.1f} MB komprimiert', flush=True)
