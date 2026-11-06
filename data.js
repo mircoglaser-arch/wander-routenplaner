@@ -3,7 +3,7 @@
   'use strict';
   const TLAT = 0.1, TLON = 0.15;          // ca. 11 × 10,5 km pro Kachel
   const STATIC = 'https://raw.githubusercontent.com/mircoglaser-arch/wander-routenplaner/data/';
-  const DBN = 'wander-routenplaner-3', ST = 'tiles';
+  const DBN = 'wander-routenplaner-4', ST = 'tiles';
   const REGION = [49.9, 6.0, 51.5, 8.7];   // Köln, Bergisches Land, Eifel, Sauerland, Siebengebirge, Mosel, Rhein
   const SERVERS = [
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
@@ -75,7 +75,7 @@
     if (idxp) return idxp;
     idxp = (async () => {
       try {
-        const r = await fetch(STATIC + 'index.json', { cache: 'no-cache' });
+        const r = await fetch(STATIC + 'index.json?t=' + Math.floor(Date.now() / 60000), { cache: 'no-cache' });
         if (!r.ok) throw new Error(r.status);
         const ix = await r.json();
         const info = {};
@@ -106,10 +106,10 @@
     const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
     return JSON.parse(await new Response(stream).text());
   }
-  async function fetchStatic(set, k) {
+  async function fetchStatic(set, k, gen) {
     for (let a = 0; a < 3; a++) {
       try {
-        const r = await fetch(`${STATIC}${set}/${k}.json.gz`);
+        const r = await fetch(`${STATIC}${set}/${k}.json.gz?g=${encodeURIComponent(gen || '')}`);
         if (r.status === 404) return { rels: [], ways: [] };
         if (!r.ok) throw new Error(r.status);
         return await gunzipJSON(r);
@@ -174,9 +174,12 @@
         if (isCancelled && isCancelled()) return;
         const { k, cov } = todo[idx++];
         try {
-          const d = cov === 'have' ? await fetchStatic(set, k) : await fetchOverpass(set, k);
-          const v = { gen: cov === 'have' ? gen : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(w => ({ id: w.id, routes: w.routes, c: Float32Array.from(w.c), j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f })) };
-          await put(`${set}:${k}`, v); parts.push(v);
+          const d = cov === 'have' ? await fetchStatic(set, k, gen) : await fetchOverpass(set, k);
+          // Nur Kacheln speichern, die zum aktuellen Datenstand passen (CDN kann kurz Altes liefern)
+          const fresh = cov !== 'have' || !d.gen || d.gen === gen;
+          const v = { gen: cov === 'have' ? (fresh ? gen : 'stale') : 'overpass', ts: Date.now(), rels: d.rels, ways: d.ways.map(w => ({ id: w.id, routes: w.routes, c: Float32Array.from(w.c), j: Float64Array.from(w.j), s: w.s || 0, f: w.f == null ? -1 : w.f })) };
+          if (fresh) await put(`${set}:${k}`, v); else mem.set(`${set}:${k}`, v);
+          parts.push(v);
         } catch (e) { failed++; }
         done++; report();
       }
