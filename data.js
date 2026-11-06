@@ -3,7 +3,7 @@
   'use strict';
   const TLAT = 0.1, TLON = 0.15;          // ca. 11 × 10,5 km pro Kachel
   const STATIC = 'https://raw.githubusercontent.com/mircoglaser-arch/wander-routenplaner/data/';
-  const DBN = 'wander-routenplaner-4', ST = 'tiles';
+  const DBN = 'wander-routenplaner-5', ST = 'tiles';
   const REGION = [49.9, 6.0, 51.5, 8.7];   // Köln, Bergisches Land, Eifel, Sauerland, Siebengebirge, Mosel, Rhein
   const SERVERS = [
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
@@ -84,7 +84,7 @@
           for (const k of keys) { const [i, j] = k.split('_').map(Number); i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
           info[name] = { set, i0, i1, j0, j1 };
         }
-        const ixd = { gen: ix.generated, sets: info };
+        const ixd = { gen: ix.generated, sets: info, cover: ix.cover ? new Set(ix.cover) : null };
         await put('meta:index', ixd);
         return ixd;
       } catch (e) {
@@ -98,6 +98,7 @@
   function coverage(ix, set, k) {
     const s = ix && ix.sets[set]; if (!s) return 'outside';
     if (s.set.has(k)) return 'have';
+    if (ix.cover) return ix.cover.has(k) ? 'empty' : 'outside';
     const [i, j] = k.split('_').map(Number);
     return (i > s.i0 && i < s.i1 && j > s.j0 && j < s.j1) ? 'empty' : 'outside';
   }

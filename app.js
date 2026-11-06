@@ -20,7 +20,14 @@
     { id: 'eifel', name: 'Eifel', place: 'Monschau', ll: [50.5550, 6.2400] },
     { id: 'sauer', name: 'Sauerland', place: 'Winterberg', ll: [51.1940, 8.5310] },
     { id: 'mosel', name: 'Mosel', place: 'Cochem', ll: [50.1460, 7.1660] },
-    { id: 'rhein', name: 'Rhein', place: 'Boppard', ll: [50.2310, 7.5900] }
+    { id: 'rhein', name: 'Rhein', place: 'Boppard', ll: [50.2310, 7.5900] },
+    { id: 'harz', name: 'Harz', place: 'Torfhaus', ll: [51.8040, 10.5330] },
+    { id: 'saechs', name: 'Sächsische Schweiz', place: 'Bad Schandau', ll: [50.9180, 14.1550] },
+    { id: 'schwarz', name: 'Schwarzwald', place: 'Titisee', ll: [47.9010, 8.1580] },
+    { id: 'allgaeu', name: 'Allgäu', place: 'Oberstdorf', ll: [47.4090, 10.2780] },
+    { id: 'pfalz', name: 'Pfälzerwald', place: 'Johanniskreuz', ll: [49.3480, 7.8240] },
+    { id: 'thuer', name: 'Thüringer Wald', place: 'Oberhof', ll: [50.7060, 10.7270] },
+    { id: 'ostsee', name: 'Ostsee', place: 'Sassnitz (Rügen)', ll: [54.5160, 13.6420] }
   ];
   const OVERPASS = [
     'https://overpass.private.coffee/api/interpreter',
@@ -178,7 +185,7 @@
       if (ctl) ctl.abort(); ctl = new AbortController();
       const c = map.getCenter();
       try {
-        const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&bbox=5.5,49.0,10.5,52.6`, { signal: ctl.signal });
+        const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&bbox=5.5,47.0,15.5,55.2`, { signal: ctl.signal });
         if (!r.ok) throw new Error(r.status);
         const j = await r.json();
         items = (j.features || []).map(f => {
@@ -284,7 +291,7 @@
     S.cancel = false;
     const t0 = performance.now(); let last = { done: 0, total: keys.length, cached: 0, failed: 0 };
     const show = () => { const p = last; const sec = Math.round((performance.now() - t0) / 1000);
-      status(`Lade ${what}: Kachel ${p.done} von ${p.total}${p.cached ? ` (${p.cached} vom Gerät)` : ''}${p.failed ? `, ${p.failed} fehlgeschlagen` : ''} · ${sec} s${p.slow ? ` – ${p.slow} Kacheln liegen außerhalb von NRW/Rheinland-Pfalz und kommen langsamer direkt von OpenStreetMap` : ''}`, null, 0.02 + 0.26 * p.done / p.total); };
+      status(`Lade ${what}: Kachel ${p.done} von ${p.total}${p.cached ? ` (${p.cached} vom Gerät)` : ''}${p.failed ? `, ${p.failed} fehlgeschlagen` : ''} · ${sec} s${p.slow ? ` – ${p.slow} Kacheln liegen außerhalb Deutschlands und kommen langsamer direkt von OpenStreetMap` : ''}`, null, 0.02 + 0.26 * p.done / p.total); };
     const iv = setInterval(show, 1000);
     let res;
     let ex = { parts: [], failed: 0 };
@@ -758,7 +765,8 @@
     const keys = (await Tiles.storedKeys()).filter(k => /^(all|long):/.test(k)); const reg = new Set(Tiles.tilesRegion());
     const n = set => keys.filter(k => k.startsWith(set + ':') && reg.has(k.slice(set.length + 1))).length;
     const ix = await Tiles.index();
-    $('offInfo').textContent = `${ix ? `Wegenetz aufbereitet am ${new Date(ix.gen).toLocaleDateString('de-DE')} aus OpenStreetMap (NRW und Rheinland-Pfalz, monatlich aktualisiert). ` : 'Aufbereitetes Wegenetz gerade nicht erreichbar – die App fragt OpenStreetMap direkt ab. '}Auf diesem Gerät gespeichert: ${n('all')} von ${reg.size} Kacheln mit allen Wegen, ${n('long')} mit Fern- und Regionalwegen (Region Köln bis Sauerland, Eifel, Mosel und Rhein). Gespeichert funktioniert die Tourenplanung auch ohne Netz; Karte und Höhenprofil brauchen weiter Internet.`;
+    const all = keys.filter(k => k.startsWith('all:')).length, lng = keys.filter(k => k.startsWith('long:')).length;
+    $('offInfo').textContent = `${ix ? `Wegenetz für ganz Deutschland, aufbereitet am ${new Date(ix.gen).toLocaleDateString('de-DE')} aus OpenStreetMap und monatlich aktualisiert. Geladene Gebiete bleiben auf diesem Gerät gespeichert. ` : 'Aufbereitetes Wegenetz gerade nicht erreichbar – die App fragt OpenStreetMap direkt ab. '}Gespeichert: ${all + lng} Kacheln, davon ${n('all') + n('long')} der Heimatregion Köln bis Sauerland, Eifel, Mosel und Rhein (${reg.size * 2} insgesamt). Gespeichert funktioniert die Tourenplanung auch ohne Netz; Karte und Höhenprofil brauchen weiter Internet.`;
   }
   $('btnPreload').onclick = async () => {
     const b = $('btnPreload');
@@ -773,8 +781,8 @@
         failed += r.failed;
       }
       const res = { failed };
-      status(S.cancel ? 'Abgebrochen. Bereits geladene Kacheln bleiben gespeichert.' : res.failed ? `${res.failed} Kacheln konnten nicht geladen werden. Später erneut auf „Ganze Region speichern“ tippen, dann werden nur die fehlenden geladen.` : 'Region gespeichert. Lange Touren werden jetzt ohne Wartezeit berechnet.', res.failed ? 'err' : null, 1);
-    } finally { S.busy = false; S.cancel = false; b.textContent = 'Ganze Region speichern'; refreshOffline(); }
+      status(S.cancel ? 'Abgebrochen. Bereits geladene Kacheln bleiben gespeichert.' : res.failed ? `${res.failed} Kacheln konnten nicht geladen werden. Später erneut auf „Heimatregion speichern“ tippen, dann werden nur die fehlenden geladen.` : 'Heimatregion gespeichert. Touren dort werden jetzt ohne Wartezeit berechnet.', res.failed ? 'err' : null, 1);
+    } finally { S.busy = false; S.cancel = false; b.textContent = 'Heimatregion speichern'; refreshOffline(); }
   };
   $('btnClear').onclick = async () => {
     if ($('btnClear').dataset.confirm !== '1') { $('btnClear').dataset.confirm = '1'; $('btnClear').textContent = 'Wirklich leeren?'; setTimeout(() => { $('btnClear').dataset.confirm = ''; $('btnClear').textContent = 'Speicher leeren'; }, 4000); return; }
