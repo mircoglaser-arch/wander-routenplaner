@@ -684,17 +684,8 @@
       <div class="actions">
         <button class="btn" type="button" id="btnNav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 19-7-4-7 4z"/></svg>Navigation starten</button>
         <button class="btn" type="button" id="btnGpx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>GPX speichern</button>
-      </div>
-      <div class="handoff">
-        <h3 class="h3">An App übergeben</h3>
-        <div class="actions">
-          <button class="btn" type="button" data-target="komoot">Komoot</button>
-          <button class="btn" type="button" data-target="garmin">Garmin Connect</button>
-          <button class="btn" type="button" data-target="outdooractive">Outdooractive</button>
-        </div>
-        <p class="note" id="gpxHint" hidden></p>
       </div>`;
-    el.querySelectorAll('[data-target]').forEach(b => b.onclick = () => gpx(lp, b.dataset.target));
+
     const ul = $('segs');
     const pick = li => { if (!li) return; const r = lp.rows[+li.dataset.k]; highlight(r.coords); };
     ul.onclick = e => pick(e.target.closest('.seg'));
@@ -813,39 +804,24 @@
   }
 
   /* ---------- GPX ---------- */
-  function gpx(lp, target) {
+  function gpx(lp) {
     const name = S.mode === 'loop' ? `Wander-Routenplaner ${km(lp.total)} km – Rundkurs ab ${S.startLabel}` : `Wander-Routenplaner ${km(lp.total)} km – ${S.startLabel} nach ${S.endLabel}`;
     const eleAt = d => { const e = lp.ele; if (!e || !e.length) return null; let lo = 0, hi = e.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (e[m].d <= d) lo = m; else hi = m; } const t = e[hi].d > e[lo].d ? (d - e[lo].d) / (e[hi].d - e[lo].d) : 0; return e[lo].h + (e[hi].h - e[lo].h) * t; };
     const pts = lp.coords.map((c, i) => { const h = eleAt(lp.cum[i]); return `<trkpt lat="${c[0].toFixed(6)}" lon="${c[1].toFixed(6)}">${h != null ? `<ele>${h.toFixed(1)}</ele>` : ''}</trkpt>`; }).join('\n');
     const desc = lp.rows.map(r => r.zuweg ? `ohne Markierung ${km(r.len)} km` : r.rel == null ? `Verbindungsweg ${km(r.len)} km` : `${WK.routeLabel(S.G.rels.get(r.rel).tags).title} ${km(r.len)} km`).join(' | ');
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Wander-Routenplaner" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${esc(name)}</name><desc>${esc(desc)}</desc><copyright author="OpenStreetMap contributors"><license>https://opendatacommons.org/licenses/odbl/</license></copyright></metadata>\n<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>\n${pts}\n</trkseg></trk>\n</gpx>\n`;
     const fname = `wanderroute-${nf1.format(lp.total / 1000).replace(',', '-')}km.gpx`;
-    saveGpx(xml, fname, name, target);
+    saveGpx(xml, fname, name);
   }
 
-  // Übergabe an Tourenportale: Datei speichern/teilen und Import-Seite öffnen
-  const TARGETS = {
-    komoot: { name: 'Komoot', url: 'https://www.komoot.com/de-de',
-      web: 'Bei Komoot: Profil → „Gespeicherte Touren“ → „GPS-Datei importieren“ → die Datei aus „Downloads“ wählen.',
-      app: 'Im Teilen-Menü „komoot“ wählen. Alternativ in der App: Profil → Gespeicherte Touren → Importieren → „Datei importieren“.' },
-    garmin: { name: 'Garmin Connect', url: 'https://connect.garmin.com/modern/courses',
-      web: 'Bei Garmin Connect: „Training“ → „Strecken“ → „Importieren“ → Datei wählen → Streckentyp „Wandern“ → speichern. Danach „An Gerät senden“.',
-      app: 'Im Teilen-Menü „Connect“ wählen, Streckentyp „Wandern“ wählen und speichern. Danach in der App an die Uhr senden.' },
-    outdooractive: { name: 'Outdooractive', url: 'https://www.outdooractive.com/de/',
-      web: 'Bei Outdooractive anmelden → „Meine Seite“ → Touren → „Tour importieren oder Track hochladen“ → Datei wählen.',
-      app: 'Im Teilen-Menü „Outdooractive“ wählen bzw. „Öffnen in … Outdooractive“.' }
-  };
-
   // Handy: Teilen-Menü (Speichern in Dateien, Öffnen in Komoot, Outdooractive …); sonst normaler Download
-  async function saveGpx(xml, fname, title, target) {
-    const t = TARGETS[target];
+  async function saveGpx(xml, fname, title) {
     const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
     try {
       const file = new File([xml], fname, { type: 'application/gpx+xml' });
       if (touch && navigator.canShare && navigator.canShare({ files: [file] })) {
-        if (t) showHint(t, true);
         await navigator.share({ files: [file], title });
-        status(t ? `GPX-Datei an ${t.name} übergeben.` : `GPX-Datei „${fname}“ geteilt.`);
+        status(`GPX-Datei „${fname}“ geteilt.`);
         return;
       }
     } catch (e) {
@@ -857,19 +833,7 @@
     a.href = url; a.download = fname; a.rel = 'noopener'; a.style.display = 'none';
     document.body.appendChild(a); a.click();
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60000);
-    if (t) {
-      showHint(t, false);
-      // Import-Seite im neuen Tab (innerhalb desselben Klicks, damit kein Popup-Blocker greift)
-      const w = window.open(t.url, '_blank', 'noopener');
-      status(`GPX-Datei „${fname}“ gespeichert${w === null ? '' : ` und ${t.name} geöffnet`}. ${t.web}`);
-    } else {
-      status(`GPX-Datei „${fname}“ wird gespeichert (Ordner „Downloads“). Startet kein Download, die Seite bitte direkt im Browser öffnen – manche App-Ansichten blockieren Downloads.`);
-    }
-  }
-  function showHint(t, app) {
-    const el = $('gpxHint'); if (!el) return;
-    el.hidden = false;
-    el.innerHTML = `<b>${esc(t.name)}:</b> ${esc(app ? t.app : t.web)}${app ? '' : ` <a href="${t.url}" target="_blank" rel="noopener">${esc(t.name)} öffnen</a>`}`;
+    status(`GPX-Datei „${fname}“ wird gespeichert (Ordner „Downloads“). Startet kein Download, die Seite bitte direkt im Browser öffnen – manche App-Ansichten blockieren Downloads.`);
   }
 
   /* ---------- Navigation ---------- */
