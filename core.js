@@ -136,6 +136,8 @@
         m = ({ 1: 0.86, 3: 0.9, 4: 0.96, 2: 1.35 })[e.s] || 1.05;
         if (e.f >= 0) m *= 1 - 0.15 * e.f / 100;
       }
+      // Verbindungswege: unbefestigte stark bevorzugen, Asphalt möglichst meiden (unabhängig vom Natur-Schalter)
+      if (e.conn) m *= ({ 1: 0.85, 3: 0.88, 4: 0.95, 2: 1.9 })[e.s] || 1.3;
       e.w = e.base * m;
     }
     G.nature = !!nature;
